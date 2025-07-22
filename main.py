@@ -18,9 +18,11 @@ class RPG_Bot(commands.Bot):
     async def setup_hook(self):
         """Carrega todos os cogs da pasta /cogs e sincroniza os comandos."""
         print("Carregando cogs...")
-        # Adicione o seu arquivo de cog aqui quando ele for criado
-        await self.load_extension('cogs.registro_personagem_cog')
-        print("  -> Cog 'registro_personagem_cog' carregado.")
+        # Carrega os novos cogs
+        await self.load_extension('cogs.registro_cog')
+        print("  -> Cog 'registro_cog' carregado.")
+        await self.load_extension('cogs.personagem_cog')
+        print("  -> Cog 'personagem_cog' carregado.")
         
         # Sincroniza a árvore de comandos após carregar tudo
         print("Sincronizando comandos de barra...")
