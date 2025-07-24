@@ -12,8 +12,16 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 # 2. CONFIGURAR A CLASSE DO BOT E CARREGAR COGS
 class RPG_Bot(commands.Bot):
     def __init__(self):
-        # O command_prefix é necessário, mas não será usado se você só usar comandos de barra
-        super().__init__(command_prefix="!", intents=discord.Intents.default())
+        # --- CORREÇÃO APLICADA AQUI ---
+        
+        # Primeiro, definimos as permissões que o bot precisa.
+        intents = discord.Intents.default()
+        intents.message_content = True # Essencial para comandos de prefixo (!)
+
+        # Agora, inicializamos o bot passando o prefixo E as intents que acabamos de definir.
+        super().__init__(command_prefix="!", intents=intents)
+        
+        # A linha extra 'intents=intents' foi removida pois não era necessária.
 
     async def setup_hook(self):
         """Carrega todos os cogs da pasta /cogs e sincroniza os comandos."""
@@ -25,6 +33,8 @@ class RPG_Bot(commands.Bot):
         print("  -> Cog 'personagem_cog' carregado.")
         await self.load_extension('cogs.item_cog')
         print("  -> Cog 'item_cog' carregado.")
+        await self.load_extension('cogs.admin_cog')
+        print("  -> Cog 'admin_cog' carregado.")
         
         # Sincroniza a árvore de comandos após carregar tudo
         print("Sincronizando comandos de barra...")

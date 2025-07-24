@@ -1,18 +1,25 @@
 # data/game_constants.py
 from collections import OrderedDict
 
-# Usamos um OrderedDict para garantir que a ordem de exibição será sempre a mesma.
-# A chave é o nome interno que usamos no template do item (em 'slot').
-# O valor é o nome bonito que mostramos para o jogador.
+# Agora o valor é um dicionário com nome de exibição e um emoji
 EQUIPMENT_SLOTS = OrderedDict([
-    ("CAPACETE", "Capacete"),
-    ("PEITORAL", "Peitoral"),
-    ("CALCA", "Calça"),
-    ("BOTA", "Bota"),
-    ("MAO_PRINCIPAL", "Mão Primária"),
-    ("MAO_SECUNDARIA", "Mão Secundária"),
-    ("ANEL", "Anel"),
-    ("COLAR", "Colar"),
-    ("RUNA_1", "Runa 1"),
-    ("RUNA_2", "Runa 2"),
+    ("CAPACETE", {"display": "Capacete", "emoji": "👑"}),
+    ("PEITORAL", {"display": "Peitoral", "emoji": "👕"}),
+    ("CALCA",    {"display": "Calça",    "emoji": "👖"}),
+    ("BOTA",     {"display": "Bota",     "emoji": "👢"}),
+    ("MAO_PRINCIPAL",  {"display": "Mão Primária", "emoji": "⚔️"}),
+    ("MAO_SECUNDARIA", {"display": "Mão Secundária", "emoji": "🛡️"}),
+    ("ANEL",     {"display": "Anel",     "emoji": "💍"}),
+    ("COLAR",    {"display": "Colar",    "emoji": "📿"}),
+    ("RUNA_1",   {"display": "Runa 1",   "emoji": "🌀"}),
+    ("RUNA_2",   {"display": "Runa 2",   "emoji": "🌀"}),
 ])
+
+# Dicionário de emojis para cada raridade
+RARITY_EMOJIS = {
+    "COMUM": "⚪️",
+    "INCOMUM": "🟢",
+    "RARO": "🔵",
+    "EPICO": "🟣",
+    "LENDARIO": "🟠"
+}

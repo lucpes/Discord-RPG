@@ -1,14 +1,15 @@
-# ui/views.py
+ # ui/views.py
 import discord
-from discord.ext import commands
 import math
-
-from data.classes_data import CLASSES_DATA, ORDERED_CLASSES
-from data.game_constants import EQUIPMENT_SLOTS # Importa nossos slots
-from data.stats_library import format_stat
 from firebase_config import db
+from data.habilidades_library import HABILIDADES
+from data.classes_data import CLASSES_DATA, ORDERED_CLASSES
+from data.game_constants import EQUIPMENT_SLOTS, RARITY_EMOJIS # Importa os novos dados
+from data.stats_library import format_stat
 
-# --- NOVA VIEW PARA O INVENTÁRIO COM PAGINAÇÃO ---
+# ---------------------------------------------------------------------------------
+# VIEW DO INVENTÁRIO (Totalmente Redesenhada)
+# ---------------------------------------------------------------------------------
 class InventarioView(discord.ui.View):
     def __init__(self, user: discord.User, equipped_items: dict, backpack_items: list):
         super().__init__(timeout=300)
@@ -16,37 +17,63 @@ class InventarioView(discord.ui.View):
         self.equipped_items = equipped_items
         self.backpack_items = backpack_items
         
-        # Lógica de Paginação
-        self.items_per_page = 3
+        self.items_per_page = 4 # Aumentamos um pouco o limite por página
         self.current_page = 1
-        self.total_pages = math.ceil(len(self.backpack_items) / self.items_per_page)
+        self.total_pages = math.ceil(len(self.backpack_items) / self.items_per_page) if self.backpack_items else 1
 
         self.update_buttons()
 
     def update_buttons(self):
-        """Ativa/desativa os botões de paginação conforme a página atual."""
-        self.children[0].disabled = self.current_page == 1
-        self.children[1].disabled = self.current_page >= self.total_pages
+        # Encontra os botões de paginação pelo custom_id
+        prev_button = discord.utils.get(self.children, custom_id="prev_page")
+        next_button = discord.utils.get(self.children, custom_id="next_page")
+        if prev_button: prev_button.disabled = self.current_page == 1
+        if next_button: next_button.disabled = self.current_page >= self.total_pages
+
+    def format_item_line(self, item_data):
+        """Formata uma única linha de item para exibição."""
+        template = item_data['template_data']
+        rarity_id = template.get('raridade', 'COMUM').upper()
+        emoji = RARITY_EMOJIS.get(rarity_id, '⚪️')
+        return f"{emoji} `[{item_data['id']}]` **{template['nome']}**"
 
     async def create_inventory_embed(self):
-        """Cria o embed do inventário com os itens equipados e a mochila paginada."""
-        embed = discord.Embed(
-            title=f"Inventário de {self.user.display_name}",
-            color=self.user.color
-        ).set_thumbnail(url=self.user.display_avatar.url)
+        """Cria o embed do inventário com o novo layout de colunas."""
+        embed = discord.Embed(title=f"Inventário de {self.user.display_name}", color=self.user.color)
+        embed.set_thumbnail(url=self.user.display_avatar.url)
 
-        # Seção de Itens Equipados
-        equipped_str = ""
-        for slot_id, slot_name in EQUIPMENT_SLOTS.items():
+        # --- Seção de Itens Equipados (Layout de Colunas) ---
+        
+        # Coluna da Esquerda (Armadura)
+        armor_slots = ["CAPACETE", "PEITORAL", "CALCA", "BOTA"]
+        armor_str = ""
+        for slot_id in armor_slots:
+            slot_info = EQUIPMENT_SLOTS[slot_id]
             item = self.equipped_items.get(slot_id)
-            if item:
-                rarity = item['template_data'].get('raridade', 'COMUM').capitalize()
-                equipped_str += f"**{slot_name}:** `[{item['id']}]` {item['template_data']['nome']} ({rarity})\n"
-            else:
-                equipped_str += f"**{slot_name}:** [Vazio]\n"
-        embed.add_field(name="🛡️ Equipamento", value=equipped_str, inline=False)
+            armor_str += f"{slot_info['emoji']} **{slot_info['display']}:**\n"
+            armor_str += f"↳ {self.format_item_line(item)}\n" if item else "↳ — *Vazio*\n"
+        embed.add_field(name="Armadura Principal", value=armor_str, inline=True)
 
-        # Seção da Mochila Paginada
+        # Coluna da Direita (Armas e Acessórios)
+        accessory_slots = ["MAO_PRINCIPAL", "MAO_SECUNDARIA", "ANEL", "COLAR"]
+        accessory_str = ""
+        for slot_id in accessory_slots:
+            slot_info = EQUIPMENT_SLOTS[slot_id]
+            item = self.equipped_items.get(slot_id)
+            accessory_str += f"{slot_info['emoji']} **{slot_info['display']}:**\n"
+            accessory_str += f"↳ {self.format_item_line(item)}\n" if item else "↳ — *Vazio*\n"
+        embed.add_field(name="Combate e Acessórios", value=accessory_str, inline=True)
+        
+        # Seção de Runas (Centralizada)
+        rune_slots = ["RUNA_1", "RUNA_2"]
+        rune_str = ""
+        for slot_id in rune_slots:
+            slot_info = EQUIPMENT_SLOTS[slot_id]
+            item = self.equipped_items.get(slot_id)
+            rune_str += f"{slot_info['emoji']} {self.format_item_line(item) if item else '— *Vazio*'}\n"
+        embed.add_field(name="Runas", value=rune_str, inline=False)
+        
+        # --- Seção da Mochila Paginada (Layout Compacto) ---
         if not self.backpack_items:
             embed.add_field(name="🎒 Mochila", value="Sua mochila está vazia.", inline=False)
         else:
@@ -54,44 +81,74 @@ class InventarioView(discord.ui.View):
             end_index = start_index + self.items_per_page
             items_on_page = self.backpack_items[start_index:end_index]
             
-            backpack_str = ""
-            for item in items_on_page:
-                template = item['template_data']
-                stats = "\n".join([format_stat(stat, val) for stat, val in item['instance_data'].get('stats_gerados', {}).items()])
-                classes = template.get('classe', 'Qualquer uma')
-                if isinstance(classes, list): classes = ", ".join(classes)
-
-                backpack_str += (
-                    f"**`{item['id']}` - {template['nome']} - Slot: {template.get('slot', 'N/A')}**\n"
-                    f"Classe: `{classes}`\n"
-                    f"*{stats or 'Nenhum atributo'}*\n---\n"
-                )
-            
-            embed.add_field(name="🎒 Mochila", value=backpack_str, inline=False)
-            embed.set_footer(text=f"Página {self.current_page} de {self.total_pages}")
+            backpack_list = [self.format_item_line(item) for item in items_on_page]
+            embed.add_field(name="🎒 Mochila", value="\n".join(backpack_list), inline=False)
+            embed.set_footer(text=f"Use /equipar <ID> para equipar um item | Página {self.current_page}/{self.total_pages}")
             
         return embed
 
-    @discord.ui.button(label="⬅️", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="⬅️", style=discord.ButtonStyle.primary, custom_id="prev_page")
     async def previous_page(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user.id: return
-        
         self.current_page -= 1
         self.update_buttons()
         embed = await self.create_inventory_embed()
         await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="➡️", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="➡️", style=discord.ButtonStyle.primary, custom_id="next_page")
     async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user.id: return
-
         self.current_page += 1
         self.update_buttons()
         embed = await self.create_inventory_embed()
         await interaction.response.edit_message(embed=embed, view=self)
 
+    @discord.ui.button(label="Desequipar Tudo", style=discord.ButtonStyle.danger, emoji="♻️", custom_id="unequip_all", row=1)
+    async def unequip_all(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id: return
+        await interaction.response.defer(thinking=True, ephemeral=True)
 
-# --- VIEW DO PERFIL ATUALIZADA ---
+        user_id = str(interaction.user.id)
+        batch = db.batch()
+        
+        unequipped_count = 0
+        for slot, item_data in self.equipped_items.items():
+            item_ref = db.collection('characters').document(user_id).collection('inventario').document(item_data['id'])
+            batch.update(item_ref, {'equipado': False})
+            unequipped_count += 1
+        
+        if unequipped_count > 0:
+            batch.commit()
+            await interaction.followup.send(f"✅ {unequipped_count} item(ns) foram desequipados e movidos para a mochila.", ephemeral=True)
+            # Para atualizar a view, o ideal seria o usuário clicar no botão de inventário de novo
+        else:
+            await interaction.followup.send("Você não tem itens equipados para desequipar.", ephemeral=True)
+
+# ---------------------------------------------------------------------------------
+# COMPONENTE SELECT CUSTOMIZADO PARA HABILIDADES
+# ---------------------------------------------------------------------------------
+class SkillSelect(discord.ui.Select):
+    def __init__(self, slot_index: int, known_skills_options: list, equipped_skill_id: str = None):
+        super().__init__(
+            placeholder=f"Escolha a habilidade para o Slot {slot_index + 1}",
+            options=known_skills_options,
+            custom_id=f"skill_slot_{slot_index}" # ID customizado para cada slot
+        )
+        # Define o valor padrão explicitamente no construtor
+        if equipped_skill_id:
+            for option in self.options:
+                if option.value == equipped_skill_id:
+                    option.default = True
+                    break
+
+    async def callback(self, interaction: discord.Interaction):
+        # Apenas responde à interação para o Discord não dar erro de timeout
+        await interaction.response.defer()
+
+
+# ---------------------------------------------------------------------------------
+# VIEW DO PERFIL (Sem alterações na lógica)
+# ---------------------------------------------------------------------------------
 class PerfilView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -99,58 +156,132 @@ class PerfilView(discord.ui.View):
     @discord.ui.button(label="Inventário", style=discord.ButtonStyle.secondary, emoji="🎒")
     async def inventario(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True, thinking=True)
-        
         user_id = str(interaction.user.id)
         inventory_snapshot = db.collection('characters').document(user_id).collection('inventario').stream()
-        
-        equipped_items = {}
-        backpack_items = []
-
-        # Coleta todos os dados de forma assíncrona (mais eficiente no futuro com libs async)
+        equipped_items, backpack_items = {}, []
         for item_ref in inventory_snapshot:
-            item_id = item_ref.id
-            is_equipped = item_ref.to_dict().get('equipado', False)
-
+            item_id, is_equipped = item_ref.id, item_ref.to_dict().get('equipado', False)
             instance_doc = db.collection('items').document(item_id).get()
             if not instance_doc.exists: continue
             instance_data = instance_doc.to_dict()
-
             template_doc = db.collection('item_templates').document(instance_data['template_id']).get()
             if not template_doc.exists: continue
             template_data = template_doc.to_dict()
-
-            full_item_data = {
-                "id": item_id,
-                "instance_data": instance_data,
-                "template_data": template_data
-            }
-
+            full_item_data = {"id": item_id, "instance_data": instance_data, "template_data": template_data}
             if is_equipped:
                 slot = template_data.get('slot')
                 if slot: equipped_items[slot] = full_item_data
             else:
                 backpack_items.append(full_item_data)
-        
-        # Cria e envia a nova View de Inventário
         view = InventarioView(user=interaction.user, equipped_items=equipped_items, backpack_items=backpack_items)
         embed = await view.create_inventory_embed()
-        
-        # Usa followup.send pois a interação já foi "deferida"
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-
 
     @discord.ui.button(label="Habilidades", style=discord.ButtonStyle.secondary, emoji="⚔️")
     async def habilidades(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("A árvore de habilidades será implementada em breve!", ephemeral=True)
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        user_id = str(interaction.user.id)
+        char_ref = db.collection('characters').document(user_id)
+        char_doc = char_ref.get()
+        if not char_doc.exists:
+            await interaction.followup.send("❌ Personagem não encontrado.", ephemeral=True)
+            return
+        char_data = char_doc.to_dict()
+        if not char_data.get('habilidades_conhecidas'):
+            await interaction.followup.send("Você ainda não conhece nenhuma habilidade para gerenciar!", ephemeral=True)
+            return
+        view = HabilidadesView(user=interaction.user, char_data=char_data)
+        embed = discord.Embed(
+            title="⚔️ Gerenciar Habilidades",
+            description="Use os menus abaixo para trocar suas habilidades equipadas.\n"
+                        "As habilidades disponíveis são todas que seu personagem já aprendeu.\n"
+                        "Clique em 'Salvar Alterações' para confirmar.",
+            color=interaction.user.color
+        )
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     @discord.ui.button(label="Talentos", style=discord.ButtonStyle.secondary, emoji="🌟")
     async def talentos(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message("Os talentos de classe serão implementados em breve!", ephemeral=True)
 
-# A ClasseSelectionView continua aqui, sem alterações...
-# (O código da ClasseSelectionView que já tínhamos)
+
+
+# ---------------------------------------------------------------------------------
+# VIEW DE HABILIDADES - VERSÃO FINAL CORRIGIDA
+# ---------------------------------------------------------------------------------
+class HabilidadesView(discord.ui.View):
+    def __init__(self, user: discord.User, char_data: dict):
+        super().__init__(timeout=300)
+        self.user = user
+
+        # Garante que a lista de habilidades conhecidas não tenha duplicatas
+        known_skill_ids = list(set(char_data.get('habilidades_conhecidas', [])))
+        
+        # Cria a lista de opções UMA VEZ
+        base_options = []
+        for skill_id in known_skill_ids:
+            skill_info = HABILIDADES.get(skill_id)
+            if skill_info:
+                base_options.append(discord.SelectOption(
+                    label=skill_info['nome'], value=skill_id, description=skill_info['descricao'][:100], emoji=skill_info.get('emoji')
+                ))
+
+        if not base_options:
+            self.add_item(discord.ui.Button(label="Nenhuma habilidade conhecida", disabled=True))
+            return
+
+        equipped_skills = char_data.get('habilidades_equipadas', [])
+        for i in range(3):
+            # ### A CORREÇÃO CRÍTICA ESTÁ AQUI ###
+            # Para cada menu, criamos uma CÓPIA da lista de opções.
+            # Isso garante que a marcação de 'default' em um menu não afete os outros.
+            current_options = [discord.SelectOption(label=opt.label, value=opt.value, description=opt.description, emoji=opt.emoji) for opt in base_options]
+
+            select = discord.ui.Select(
+                placeholder=f"Slot de Habilidade {i+1}",
+                options=current_options,
+                custom_id=f"skill_slot_{i}",
+                row=i
+            )
+            
+            if i < len(equipped_skills):
+                default_skill_id = equipped_skills[i]
+                for option in select.options:
+                    if option.value == default_skill_id:
+                        option.default = True
+                        break
+            
+            self.add_item(select)
+            
+        save_button = discord.ui.Button(label="Salvar Alterações", style=discord.ButtonStyle.success, row=4)
+        save_button.callback = self.save_changes
+        self.add_item(save_button)
+
+    async def save_changes(self, interaction: discord.Interaction):
+        if interaction.user.id != self.user.id: return
+
+        newly_equipped = []
+        select_menus = [c for c in self.children if isinstance(c, discord.ui.Select)]
+        for component in select_menus:
+            if component.values:
+                newly_equipped.append(component.values[0])
+
+        if len(newly_equipped) != len(set(newly_equipped)):
+            await interaction.response.send_message("❌ Você não pode equipar a mesma habilidade mais de uma vez!", ephemeral=True)
+            return
+        
+        char_ref = db.collection('characters').document(str(self.user.id))
+        char_ref.update({'habilidades_equipadas': newly_equipped})
+
+        for item in self.children:
+            item.disabled = True
+        
+        await interaction.response.edit_message(content="✅ Habilidades atualizadas com sucesso!", view=None, embed=None)
+
+# ---------------------------------------------------------------------------------
+# VIEW DE CRIAÇÃO DE CLASSE (Atualizada para nova estrutura de dados)
+# ---------------------------------------------------------------------------------
 class ClasseSelectionView(discord.ui.View):
-    # ... código existente da ClasseSelectionView
     def __init__(self, user: discord.User):
         super().__init__(timeout=300)
         self.user = user
@@ -158,65 +289,59 @@ class ClasseSelectionView(discord.ui.View):
 
     def create_embed(self):
         class_name = ORDERED_CLASSES[self.current_class_index]
-        classe_atual = CLASSES_DATA[class_name]
-        embed = discord.Embed(
-            title=f"Escolha sua Classe: {class_name}",
-            description=f"**Estilo:** {classe_atual['estilo']}",
-            color=discord.Color.blue()
-        )
-        embed.set_image(url=classe_atual['image_url'])
-        embed.add_field(name="⚔️ Habilidades Iniciais", value="- " + "\n- ".join(classe_atual['habilidades']), inline=True)
-        embed.add_field(name="🌟 Evoluções Possíveis", value="- " + "\n- ".join(classe_atual['evolucoes']), inline=True)
+        class_data = CLASSES_DATA[class_name]
+        
+        embed = discord.Embed(title=f"Escolha sua Classe: {class_name}", description=f"**Estilo:** {class_data['estilo']}", color=discord.Color.blue())
+        embed.set_image(url=class_data['image_url'])
+
+        # Busca os nomes das habilidades a partir dos IDs para exibir
+        habilidades_nomes = [HABILIDADES.get(hab_id, {}).get('nome', hab_id) for hab_id in class_data['habilidades_iniciais']]
+        embed.add_field(name="⚔️ Habilidades Iniciais", value="- " + "\n- ".join(habilidades_nomes) if habilidades_nomes else "Nenhuma", inline=True)
+        
+        embed.add_field(name="🌟 Evoluções Possíveis", value="- " + "\n- ".join(class_data['evolucoes']), inline=True)
         embed.set_footer(text=f"Classe {self.current_class_index + 1}/{len(ORDERED_CLASSES)}")
         return embed
 
+    async def select_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id: return
+        for item in self.children: item.disabled = True
+
+        class_name = ORDERED_CLASSES[self.current_class_index]
+        selected_class_data = CLASSES_DATA[class_name]
+        initial_skills = selected_class_data['habilidades_iniciais']
+        
+        # Salva o personagem com os dados limpos e corretos
+        char_ref = db.collection('characters').document(str(interaction.user.id))
+        char_ref.set({
+            'classe': class_name, 'nivel': 1, 'xp': 0, 'moedas': 100, 'banco': 0, 'diamantes': 5,
+            'habilidades_equipadas': initial_skills,
+            'habilidades_conhecidas': initial_skills
+        })
+
+        final_embed = self.create_embed()
+        final_embed.title = f"✅ Classe Selecionada: {class_name}"
+        final_embed.color = discord.Color.green()
+        await interaction.response.edit_message(embed=final_embed, view=self)
+        self.stop()
+    
+    # ... (os outros botões de navegação e update_message permanecem os mesmos) ...
     async def update_message(self, interaction: discord.Interaction):
         embed = self.create_embed()
         await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.button(label="⬅️ Anterior", style=discord.ButtonStyle.secondary)
     async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.user.id:
-            await interaction.response.send_message("Você não pode interagir com o menu de outra pessoa!", ephemeral=True)
-            return
+        if interaction.user.id != self.user.id: return
         self.current_class_index = (self.current_class_index - 1) % len(ORDERED_CLASSES)
         await self.update_message(interaction)
 
     @discord.ui.button(label="✅ Selecionar", style=discord.ButtonStyle.success)
-    async def select_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.user.id:
-            await interaction.response.send_message("Você não pode interagir com o menu de outra pessoa!", ephemeral=True)
-            return
-
-        for item in self.children:
-            item.disabled = True
-
-        class_name = ORDERED_CLASSES[self.current_class_index]
-        selected_class = CLASSES_DATA[class_name]
-        
-        char_ref = db.collection('characters').document(str(interaction.user.id))
-        char_ref.set({
-            'classe': class_name,
-            'nivel': 1,
-            'xp': 0,
-            'moedas': 100,
-            'banco': 0,
-            'diamantes': 5,
-            'habilidades_equipadas': selected_class['habilidades']
-        })
-
-        final_embed = self.create_embed()
-        final_embed.title = f"✅ Classe Selecionada: {class_name}"
-        final_embed.color = discord.Color.green()
-        final_embed.description = f"Parabéns, {interaction.user.mention}! Você iniciou sua jornada como um(a) **{class_name}**."
-        
-        await interaction.response.edit_message(embed=final_embed, view=self)
-        self.stop()
+    async def select_button_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.select_button(interaction, button)
 
     @discord.ui.button(label="Próximo ➡️", style=discord.ButtonStyle.secondary)
     async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.user.id:
-            await interaction.response.send_message("Você não pode interagir com o menu de outra pessoa!", ephemeral=True)
-            return
+        if interaction.user.id != self.user.id: return
         self.current_class_index = (self.current_class_index + 1) % len(ORDERED_CLASSES)
         await self.update_message(interaction)
+        
