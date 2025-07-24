@@ -207,17 +207,19 @@ class PerfilView(discord.ui.View):
 
 
 # ---------------------------------------------------------------------------------
-# VIEW DE HABILIDADES - VERSÃO FINAL CORRIGIDA
+# VIEW DE HABILIDADES - VERSÃO COM A CORREÇÃO FINAL
 # ---------------------------------------------------------------------------------
 class HabilidadesView(discord.ui.View):
     def __init__(self, user: discord.User, char_data: dict):
         super().__init__(timeout=300)
         self.user = user
+        
+        self.selected_skills = char_data.get('habilidades_equipadas', [])
+        while len(self.selected_skills) < 3:
+            self.selected_skills.append(None)
 
-        # Garante que a lista de habilidades conhecidas não tenha duplicatas
         known_skill_ids = list(set(char_data.get('habilidades_conhecidas', [])))
         
-        # Cria a lista de opções UMA VEZ
         base_options = []
         for skill_id in known_skill_ids:
             skill_info = HABILIDADES.get(skill_id)
@@ -230,41 +232,100 @@ class HabilidadesView(discord.ui.View):
             self.add_item(discord.ui.Button(label="Nenhuma habilidade conhecida", disabled=True))
             return
 
-        equipped_skills = char_data.get('habilidades_equipadas', [])
         for i in range(3):
             # ### A CORREÇÃO CRÍTICA ESTÁ AQUI ###
-            # Para cada menu, criamos uma CÓPIA da lista de opções.
+            # Para cada menu, criamos uma CÓPIA PROFUNDA da lista de opções.
             # Isso garante que a marcação de 'default' em um menu não afete os outros.
-            current_options = [discord.SelectOption(label=opt.label, value=opt.value, description=opt.description, emoji=opt.emoji) for opt in base_options]
-
+            current_options = [
+                discord.SelectOption(label=opt.label, value=opt.value, description=opt.description, emoji=opt.emoji) 
+                for opt in base_options
+            ]
+            
             select = discord.ui.Select(
-                placeholder=f"Slot de Habilidade {i+1}",
-                options=current_options,
-                custom_id=f"skill_slot_{i}",
-                row=i
+                placeholder=f"Slot de Habilidade {i+1}", options=current_options, custom_id=f"skill_slot_{i}", row=i
             )
-            
-            if i < len(equipped_skills):
-                default_skill_id = equipped_skills[i]
-                for option in select.options:
-                    if option.value == default_skill_id:
-                        option.default = True
-                        break
-            
+            select.callback = self.select_callback
             self.add_item(select)
-            
+        
         save_button = discord.ui.Button(label="Salvar Alterações", style=discord.ButtonStyle.success, row=4)
         save_button.callback = self.save_changes
         self.add_item(save_button)
+        
+        self.update_select_visual_state()
+
+    def update_select_visual_state(self):
+        """Atualiza o estado visual (placeholder e default) de todos os menus."""
+        for i in range(3):
+            select_menu = self.children[i]
+            if not isinstance(select_menu, discord.ui.Select): continue
+            
+            default_skill_id = self.selected_skills[i]
+            
+            new_placeholder = f"Slot de Habilidade {i+1}"
+            for option in select_menu.options:
+                # Limpa o default anterior e define o novo
+                option.default = option.value == default_skill_id
+                if option.default:
+                    new_placeholder = option.label
+            select_menu.placeholder = new_placeholder
+
+    def create_embeds(self, focused_skill_id: str = None) -> list[discord.Embed]:
+        """Cria a lista de embeds para serem exibidos."""
+        main_embed = discord.Embed(
+            title="⚔️ Gerenciar Habilidades",
+            description="Use os menus para equipar as habilidades que você conhece.\nAs informações da habilidade selecionada aparecerão abaixo.",
+            color=self.user.color
+        )
+        embeds = [main_embed]
+
+        if focused_skill_id and (skill_info := HABILIDADES.get(focused_skill_id)):
+            details_embed = discord.Embed(color=discord.Color.dark_grey())
+            details_embed.set_author(name=f"{skill_info.get('emoji', '')} {skill_info['nome']}")
+            
+            # --- BLOCO DE INFORMAÇÕES ATUALIZADO ---
+            
+            # Linha 1: Tipo e Custo de Mana
+            tipo = skill_info.get('tipo', 'N/A').capitalize()
+            custo = skill_info.get('custo_mana')
+            info_linha1 = f"**Tipo:** {tipo}"
+            if custo is not None:
+                info_linha1 += f" | **Custo:** {custo} 💧"
+            
+            # Linha 2: Usos por Batalha
+            usos = skill_info.get('usos_por_batalha')
+            if usos is None:
+                info_linha2 = "**Usos:** Ilimitados"
+            else:
+                info_linha2 = f"**Usos por Batalha:** {usos}"
+
+            details_embed.description = f"{info_linha1}\n{info_linha2}\n\n*{skill_info['descricao']}*"
+            
+            # Bloco de Efeitos (continua o mesmo)
+            if efeitos := skill_info.get('efeitos'):
+                efeitos_str = "\n".join([format_stat(stat, val) for stat, val in efeitos.items()])
+                details_embed.add_field(name="Efeitos da Habilidade", value=efeitos_str)
+            
+            embeds.append(details_embed)
+        
+        return embeds
+
+    async def select_callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.user.id: return
+
+        slot_index = int(interaction.data['custom_id'].split('_')[-1])
+        selected_skill_id = interaction.data['values'][0]
+
+        self.selected_skills[slot_index] = selected_skill_id
+        self.update_select_visual_state()
+        
+        embeds = self.create_embeds(focused_skill_id=selected_skill_id)
+        
+        await interaction.response.edit_message(embeds=embeds, view=self)
 
     async def save_changes(self, interaction: discord.Interaction):
         if interaction.user.id != self.user.id: return
 
-        newly_equipped = []
-        select_menus = [c for c in self.children if isinstance(c, discord.ui.Select)]
-        for component in select_menus:
-            if component.values:
-                newly_equipped.append(component.values[0])
+        newly_equipped = [skill_id for skill_id in self.selected_skills if skill_id is not None]
 
         if len(newly_equipped) != len(set(newly_equipped)):
             await interaction.response.send_message("❌ Você não pode equipar a mesma habilidade mais de uma vez!", ephemeral=True)
@@ -273,10 +334,8 @@ class HabilidadesView(discord.ui.View):
         char_ref = db.collection('characters').document(str(self.user.id))
         char_ref.update({'habilidades_equipadas': newly_equipped})
 
-        for item in self.children:
-            item.disabled = True
-        
-        await interaction.response.edit_message(content="✅ Habilidades atualizadas com sucesso!", view=None, embed=None)
+        for item in self.children: item.disabled = True
+        await interaction.response.edit_message(content="✅ Habilidades atualizadas com sucesso!", view=None, embeds=[])
 
 # ---------------------------------------------------------------------------------
 # VIEW DE CRIAÇÃO DE CLASSE (Atualizada para nova estrutura de dados)
@@ -292,7 +351,13 @@ class ClasseSelectionView(discord.ui.View):
         class_data = CLASSES_DATA[class_name]
         
         embed = discord.Embed(title=f"Escolha sua Classe: {class_name}", description=f"**Estilo:** {class_data['estilo']}", color=discord.Color.blue())
-        embed.set_image(url=class_data['image_url'])
+
+        # --- CORREÇÃO APLICADA AQUI ---
+        # Pega a URL da imagem e verifica se ela existe antes de usá-la
+        image_url = class_data.get('image_url')
+        if image_url and image_url != "...": # Adicionamos uma checagem extra
+            embed.set_image(url=image_url)
+        # Se a URL não for válida, o embed será enviado sem a imagem, evitando o erro.
 
         # Busca os nomes das habilidades a partir dos IDs para exibir
         habilidades_nomes = [HABILIDADES.get(hab_id, {}).get('nome', hab_id) for hab_id in class_data['habilidades_iniciais']]
@@ -314,6 +379,10 @@ class ClasseSelectionView(discord.ui.View):
         char_ref = db.collection('characters').document(str(interaction.user.id))
         char_ref.set({
             'classe': class_name, 'nivel': 1, 'xp': 0, 'moedas': 100, 'banco': 0, 'diamantes': 5,
+            # --- NOVOS CAMPOS DE MANA ---
+            'mana_maxima': 100, # Valor base para todos
+            'mana_atual': 100,
+            
             'habilidades_equipadas': initial_skills,
             'habilidades_conhecidas': initial_skills
         })
