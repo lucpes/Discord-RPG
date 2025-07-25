@@ -379,9 +379,6 @@ class ClasseSelectionView(discord.ui.View):
         char_ref = db.collection('characters').document(str(interaction.user.id))
         char_ref.set({
             'classe': class_name, 'nivel': 1, 'xp': 0, 'moedas': 100, 'banco': 0, 'diamantes': 5,
-            # --- NOVOS CAMPOS DE MANA ---
-            'mana_maxima': 100, # Valor base para todos
-            'mana_atual': 100,
             
             'habilidades_equipadas': initial_skills,
             'habilidades_conhecidas': initial_skills

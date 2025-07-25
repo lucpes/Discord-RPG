@@ -4,7 +4,8 @@ CLASSES_DATA = {
     "Guerreiro": {
         "estilo": "...",
         "evolucoes": ["..."],
-        "image_url": "https://i.imgur.com/VYXEo2n.jpeg",
+        #"image_url": "https://i.imgur.com/VYXEo2n.jpeg",
+        "image_url": "https://i.imgur.com/55VuduV.png",
         "habilidades_iniciais": ["GRR_001", "GRR_002", "GRR_003"],
         "stats_base": {
             "VIDA_MAXIMA": 120,

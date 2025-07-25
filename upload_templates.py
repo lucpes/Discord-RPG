@@ -53,6 +53,18 @@ TEMPLATES_PARA_UPLOAD = {
             "ARMADURA": { "min": 5, "max": 10 },
             "BLOQUEIO_CHANCE": { "min": 5, "max": 10 }
         }
+    },
+    "peitoral_couro": {
+        "nome": "Peitoral de Couro",
+        "tipo": "ARMADURA",
+        "raridade": "COMUM",
+        "slot": "PEITORAL",
+        "slots_encantamento": 1,
+        "stats_base": {
+            "ARMADURA": { "min": 10, "max": 15 },
+            "VIDA_MAXIMA": { "min": 15, "max": 25 },
+            "MANA_MAXIMA": { "min": 100, "max": 100 }
+        }
     }
 }
 
@@ -68,3 +80,6 @@ for doc_id, data in TEMPLATES_PARA_UPLOAD.items():
         print(f"❌ Erro ao enviar '{doc_id}': {e}")
 
 print("\nUpload de templates concluído!")
+
+# comando
+# python upload_templates.py

@@ -59,14 +59,13 @@ class PersonagemCog(commands.Cog):
             if classe_info:
                 embed.set_thumbnail(url=classe_info['image_url'])
 
-            # Bloco de Atributos de Combate com a correção
+            # Bloco de Atributos de Combate (agora sem ler/escrever no DB)
             vida_maxima_final = stats_finais.get('VIDA_MAXIMA', 100)
             mana_maxima_final = stats_finais.get('MANA_MAXIMA', 100)
             
-            # ### A CORREÇÃO ESTÁ AQUI ###
-            # Garante que o valor atual não seja maior que o máximo.
-            vida_atual = min(char_data.get('vida_atual', vida_maxima_final), vida_maxima_final)
-            mana_atual = min(char_data.get('mana_atual', mana_maxima_final), mana_maxima_final)
+            # Os valores atuais são sempre considerados iguais aos máximos
+            vida_atual = vida_maxima_final
+            mana_atual = mana_maxima_final
             
             stats_str = (
                 f"❤️ **Vida:** `{vida_atual:,} / {vida_maxima_final:,}`\n"

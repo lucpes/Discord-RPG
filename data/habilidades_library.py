@@ -20,7 +20,7 @@ HABILIDADES = {
     "GRR_003": {
         "nome": "Vitalidade do Combatente", "emoji": "💪", "tipo": "PASSIVA",
         "descricao": "+50❤️ Passivo",
-        "efeitos": {"VIDA_EXTRA": 50} # Efeito permanente
+        "efeitos": {"VIDA_MAXIMA": 50} # Efeito permanente
     },
 
     # --- HABILIDADES DE MAGO ---
