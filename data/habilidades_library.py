@@ -5,14 +5,12 @@ HABILIDADES = {
     "GRR_001": {
         "nome": "Golpe Poderoso", "emoji": "⚔️", "tipo": "ATIVA",
         "custo_mana": 15,
-        "usos_por_batalha": None, # Usos ilimitados
         "descricao": "Um ataque concentrado que causa dano físico extra.",
         "efeitos": {"DANO": 30}
     },
     "GRR_002": {
         "nome": "Bloqueio com Escudo", "emoji": "🛡️", "tipo": "ATIVA",
         "custo_mana": 20,
-        "usos_por_batalha": 3, # Pode usar 3 vezes por batalha
         "descricao": "Aumenta sua defesa por um curto período.",
         "efeitos": {"DEFESA_BUFF": 50, "DURACAO": 2}
     },
@@ -22,19 +20,22 @@ HABILIDADES = {
         "descricao": "+50❤️ Passivo",
         "efeitos": {"VIDA_MAXIMA": 50} # Efeito permanente
     },
+    "GRR_004": {
+        "nome": "Teste de mana", "emoji": "🛡️", "tipo": "ATIVA",
+        "descricao": "Aumenta sua defesa por um curto período.",
+        "efeitos": {"MANA_MAXIMA": 100}
+    },
 
     # --- HABILIDADES DE MAGO ---
     "MAG_001": {
         "nome": "Bola de Fogo", "emoji": "🔥", "tipo": "ATIVA",
         "custo_mana": 25,
-        "usos_por_batalha": None,
         "descricao": "Lança uma esfera de fogo que causa dano em um alvo.",
         "efeitos": {"DANO_MAGICO": 45}
     },
     "MAG_002": {
         "nome": "Raio Congelante", "emoji": "❄️", "tipo": "ATIVA",
         "custo_mana": 15,
-        "usos_por_batalha": None,
         "descricao": "Dispara um raio de gelo que pode deixar o inimigo lento.",
         "efeitos": {"DANO_MAGICO": 20, "LENTIDAO": 1}
     },
@@ -42,7 +43,6 @@ HABILIDADES = {
     "MAG_003": {
         "nome": "Meteoro", "emoji": "☄️", "tipo": "ATIVA",
         "custo_mana": 100,
-        "usos_por_batalha": 1, # Só pode usar uma vez!
         "descricao": "Invoca um meteoro que causa dano massivo em área.",
         "efeitos": {"DANO_MAGICO": 200}
     },

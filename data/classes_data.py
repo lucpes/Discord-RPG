@@ -17,7 +17,7 @@ CLASSES_DATA = {
     "Mago": {
         "estilo": "...",
         "evolucoes": ["..."],
-        "image_url": "...",
+        "image_url": "https://i.imgur.com/55VuduV.png",
         "habilidades_iniciais": ["MAG_001", "MAG_002", "MAG_003"],
         "stats_base": {
             "VIDA_MAXIMA": 90,
@@ -30,7 +30,7 @@ CLASSES_DATA = {
     "Arqueira": {
         "estilo": "...",
         "evolucoes": ["..."],
-        "image_url": "...",
+        "image_url": "https://i.imgur.com/55VuduV.png",
         "habilidades_iniciais": ["ARQ_001", "ARQ_002", "ARQ_003"],
         "stats_base": {
             "VIDA_MAXIMA": 100,

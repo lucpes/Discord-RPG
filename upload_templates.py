@@ -62,6 +62,7 @@ TEMPLATES_PARA_UPLOAD = {
         "slots_encantamento": 1,
         "stats_base": {
             "ARMADURA": { "min": 10, "max": 15 },
+            "ARMADURA_MAGICA": { "min": 10, "max": 15 },
             "VIDA_MAXIMA": { "min": 15, "max": 25 },
             "MANA_MAXIMA": { "min": 100, "max": 100 }
         }

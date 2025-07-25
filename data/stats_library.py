@@ -6,6 +6,7 @@ STATS = {
     "CRITICO_CHANCE": {"nome": "Chance de Crítico", "emoji": "💥", "is_percent": True},
     "CRITICO_DANO": {"nome": "Dano Crítico Extra", "emoji": "✨", "is_percent": True},
     "ARMADURA": {"nome": "Armadura", "emoji": "🛡️"},
+    "ARMADURA_MAGICA": {"nome": "Resistência Mágica", "emoji": "💠"},
     "VIDA_MAXIMA": {"nome": "Vida Máxima", "emoji": "❤️"},
     "MANA_MAXIMA": {"nome": "Mana Máxima", "emoji": "💧"},
     "BLOQUEIO_CHANCE": {"nome": "Chance de Bloqueio", "emoji": "✋", "is_percent": True},
