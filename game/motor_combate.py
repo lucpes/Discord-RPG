@@ -1,34 +1,41 @@
 # game/motor_combate.py
 from data.habilidades_library import HABILIDADES
 import random
+from typing import Tuple
 
-def processar_efeitos_de_turno(combatente: dict) -> str:
-    log_efeitos = ""
+def aplicar_efeitos_periodicos(combatente: dict) -> str:
+    log = ""
     vida_alterada = 0
-    efeitos_a_remover = []
-
-    # Usamos uma cópia da lista para poder modificar a original com segurança
     for efeito in list(combatente.get('efeitos_ativos', [])):
         if efeito['id'] == 'ENVENENAMENTO':
             dano_dot = efeito.get('dano', 0)
             combatente['vida_atual'] -= dano_dot
             vida_alterada -= dano_dot
-        
+    if vida_alterada < 0:
+        nome = combatente.get('nome', combatente.get('nick', 'Alguém'))
+        log += f"\n{nome} sofreu `{-vida_alterada}` de dano de veneno!"
+    return log.strip()
+
+def decrementar_duracao_efeitos(combatente: dict) -> str:
+    log = ""
+    efeitos_a_remover = []
+    for efeito in combatente.get('efeitos_ativos', []):
         efeito['turnos_restantes'] -= 1
         if efeito['turnos_restantes'] <= 0:
             efeitos_a_remover.append(efeito)
-
-    if vida_alterada < 0:
-        # Acessa o 'nome' ou o 'nick' para garantir que sempre haja um nome
-        nome_combatente = combatente.get('nome', combatente.get('nick', 'Alguém'))
-        log_efeitos += f"\n{nome_combatente} sofreu `{-vida_alterada}` de dano de veneno!"
-    
     if efeitos_a_remover:
         combatente['efeitos_ativos'] = [ef for ef in combatente['efeitos_ativos'] if ef not in efeitos_a_remover]
-        nome_combatente = combatente.get('nome', combatente.get('nick', 'Alguém'))
-        log_efeitos += f"\nAlguns efeitos em {nome_combatente} expiraram."
+        nome = combatente.get('nome', combatente.get('nick', 'Alguém'))
+        log += f"\nAlguns efeitos em {nome} expiraram."
+    return log.strip()
 
-    return log_efeitos.strip()
+def esta_incapacitado(combatente: dict) -> Tuple[bool, str]:
+    """Verifica se o combatente pode agir neste turno."""
+    for efeito in combatente.get('efeitos_ativos', []):
+        if efeito['id'] == 'CONGELAMENTO':
+            nome = combatente.get('nome', combatente.get('nick', 'Alguém'))
+            return True, f"\n{nome} está congelado e não pode agir!"
+    return False, ""
 
 def calcular_dano(dano_atacante: int, armadura_defensor: int) -> int:
     reducao = armadura_defensor / (armadura_defensor + 100)
@@ -37,14 +44,18 @@ def calcular_dano(dano_atacante: int, armadura_defensor: int) -> int:
     return int(random.uniform(dano_final - variacao, dano_final + variacao))
 
 def processar_acao_jogador(jogador: dict, monstro: dict, skill_id: str) -> dict:
-    # (O código que você enviou aqui já estava correto, mantivemos ele)
     if skill_id == "basic_attack":
         log = "Você usou **Ataque Básico**!"
         dano_base_jogador = jogador['stats'].get('DANO', 0)
         dano_causado = calcular_dano(dano_base_jogador, monstro['stats'].get('ARMADURA', 0))
         monstro['vida_atual'] = max(0, monstro['vida_atual'] - dano_causado)
         log += f"\nVocê causou `{dano_causado}` de dano físico!"
-        return {"log": log, "dano_causado": dano_causado, "jogador_update": {}, "monstro_update": {"vida_atual": monstro['vida_atual']}}
+        # --- CORREÇÃO 1: O retorno do ataque básico estava incompleto ---
+        return {
+            "log": log, "dano_causado": dano_causado,
+            "jogador_update": {}, # Ataque básico não muda status do jogador
+            "monstro_update": {"vida_atual": monstro['vida_atual']}
+        }
 
     skill_data = HABILIDADES.get(skill_id)
     if not skill_data: return {"log": "Habilidade desconhecida."}
@@ -89,15 +100,24 @@ def processar_acao_jogador(jogador: dict, monstro: dict, skill_id: str) -> dict:
             log += f"\nSeu status de **{stat_alvo}** aumentou em `{valor}`!"
 
     monstro['vida_atual'] = max(0, monstro['vida_atual'] - dano_total_causado)
-    return {"log": log, "dano_causado": dano_total_causado, "jogador_update": {"mana_atual": jogador['mana_atual'], "vida_atual": jogador['vida_atual']}, "monstro_update": {"vida_atual": monstro['vida_atual']}}
+    return {
+        "log": log, "dano_causado": dano_total_causado,
+        "jogador_update": {"mana_atual": jogador['mana_atual'], "vida_atual": jogador['vida_atual']},
+        "monstro_update": {"vida_atual": monstro['vida_atual']}
+    }
 
+# --- CORREÇÃO 2: A função do turno do monstro estava incompleta ---
 def processar_turno_monstro(monstro: dict, jogador: dict) -> dict:
-    for efeito in monstro.get('efeitos_ativos', []):
-        if efeito['id'] == 'CONGELAMENTO':
-            return {"log": f"O {monstro['nome']} está congelado e não pode agir!", "dano_causado": 0, "jogador_update": {}}
-    
+    incapacitado, log_incapacitado = esta_incapacitado(monstro)
+    if incapacitado:
+        return {"log": log_incapacitado, "dano_causado": 0, "jogador_update": {}}
+
     dano_monstro = monstro['stats'].get('DANO', 5)
     dano_causado = calcular_dano(dano_monstro, jogador['stats'].get('ARMADURA', 0))
     jogador['vida_atual'] = max(0, jogador['vida_atual'] - dano_causado)
     log = f"O {monstro['nome']} ataca e causa `{dano_causado}` de dano!"
-    return {"log": log, "dano_causado": dano_causado, "jogador_update": {"vida_atual": jogador['vida_atual']}}
+    return {
+        "log": log,
+        "dano_causado": dano_causado,
+        "jogador_update": {"vida_atual": jogador['vida_atual']}
+    }

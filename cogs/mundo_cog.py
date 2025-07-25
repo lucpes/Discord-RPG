@@ -10,7 +10,10 @@ from data.monstros_library import MONSTROS
 from data.habilidades_library import HABILIDADES
 from data.classes_data import CLASSES_DATA
 from game.stat_calculator import calcular_stats_completos
-from game.motor_combate import processar_acao_jogador, processar_turno_monstro, processar_efeitos_de_turno
+from game.motor_combate import (
+    processar_acao_jogador, processar_turno_monstro, 
+    aplicar_efeitos_periodicos, decrementar_duracao_efeitos, esta_incapacitado
+)
 
 def criar_barra_status(atual: int, maximo: int, cor_cheia: str, tamanho: int = 10) -> str:
     if maximo <= 0: maximo = 1
@@ -76,32 +79,30 @@ class BattleView(discord.ui.View):
         await interaction.response.defer()
         if self.timer_task: self.timer_task.cancel()
         
-        # --- NOVO FLUXO DE TURNO ---
-        # 1. EFEITOS NO INÍCIO DO TURNO DO JOGADOR
-        log_efeitos_jogador = processar_efeitos_de_turno(self.jogador)
-        self.log_batalha = log_efeitos_jogador.strip()
-
+        # --- NOVO FLUXO DE TURNO DO JOGADOR ---
+        # 1. Efeitos de início de turno (ex: veneno)
+        self.log_batalha = aplicar_efeitos_periodicos(self.jogador)
         if self.jogador['vida_atual'] <= 0: return await self.derrota()
 
-        # 2. VERIFICA SE O JOGADOR ESTÁ INCAPACITADO
-        if any(e['id'] == 'CONGELAMENTO' for e in self.jogador.get('efeitos_ativos', [])):
-            self.log_batalha += "\nVocê está congelado e perdeu o seu turno!"
-            await self.message.edit(embed=self.create_battle_embed(turno_de='jogador'))
-            await self.process_monster_turn() # Pula direto para o turno do monstro
-            return
-
-        # 3. AÇÃO DO JOGADOR (se não estiver incapacitado)
-        skill_id = interaction.data['custom_id']
-        resultado_jogador = processar_acao_jogador(self.jogador, self.monstro, skill_id)
-        self.log_batalha += f"\n{resultado_jogador.get('log', '')}"
+        # 2. Verifica se o jogador pode agir
+        incapacitado, log_incapacitado = esta_incapacitado(self.jogador)
+        if incapacitado:
+            self.log_batalha += log_incapacitado
+        else:
+            # 3. Fase de Ação do Jogador
+            skill_id = interaction.data['custom_id']
+            resultado_jogador = processar_acao_jogador(self.jogador, self.monstro, skill_id)
+            self.log_batalha += f"\n{resultado_jogador.get('log', '')}"
         
+        # 4. Efeitos de fim de turno (decrementa durações)
+        self.log_batalha += decrementar_duracao_efeitos(self.jogador)
+
+        # Atualiza a UI e desativa botões
         for child in self.children: child.disabled = True
         await self.message.edit(embed=self.create_battle_embed(turno_de='jogador'), view=self)
 
         if "mana suficiente" in self.log_batalha:
-            self.add_skill_buttons()
-            await self.message.edit(view=self)
-            self.start_turn_timer()
+            self.add_skill_buttons(); await self.message.edit(view=self); self.start_turn_timer()
             return
 
         if self.monstro['vida_atual'] <= 0: return await self.vitoria()
@@ -110,23 +111,33 @@ class BattleView(discord.ui.View):
         await self.process_monster_turn()
 
     async def process_monster_turn(self):
-        self.log_batalha += f"\nO {self.monstro['nome']} está preparando uma ação..."
+        self.log_batalha += f"\n\nO {self.monstro['nome']} está preparando uma ação..."
         await self.message.edit(embed=self.create_battle_embed(turno_de='monstro'), view=self)
         await asyncio.sleep(3)
         
-        # --- LÓGICA DE LOG CORRIGIDA ---
-        log_completo_jogador = self.log_batalha # Salva o log do turno do jogador
-        
-        log_efeitos_monstro = processar_efeitos_de_turno(self.monstro)
+        log_turno_monstro = ""
+
+        # 1. Efeitos de início de turno do monstro
+        log_turno_monstro += aplicar_efeitos_periodicos(self.monstro)
         if self.monstro['vida_atual'] <= 0: return await self.vitoria()
 
-        resultado_monstro = processar_turno_monstro(self.monstro, self.jogador)
+        # 2. Verifica se o monstro pode agir
+        incapacitado, log_incapacitado = esta_incapacitado(self.monstro)
+        if incapacitado:
+            log_turno_monstro += log_incapacitado
+        else:
+            # 3. Fase de Ação do Monstro
+            resultado_monstro = processar_turno_monstro(self.monstro, self.jogador)
+            log_turno_monstro += f"\n{resultado_monstro['log']}"
+
+        # 4. Efeitos de fim de turno do monstro
+        log_turno_monstro += decrementar_duracao_efeitos(self.monstro)
         
-        # Junta o log do jogador + log de efeitos do monstro + log de ação do monstro
-        self.log_batalha = f"{log_completo_jogador}{log_efeitos_monstro}\n{resultado_monstro['log']}"
-        
+        # Junta o log do jogador com o log completo do turno do monstro
+        self.log_batalha = f"{self.log_batalha.splitlines()[0]}{log_turno_monstro}"
         if self.jogador['vida_atual'] <= 0: return await self.derrota()
         
+        # Prepara a UI para o próximo turno do jogador
         self.add_skill_buttons()
         await self.message.edit(embed=self.create_battle_embed(turno_de='jogador'), view=self)
         self.start_turn_timer()
@@ -237,6 +248,45 @@ class MundoCog(commands.Cog):
         message = await interaction.followup.send(embed=embed, view=view)
         view.message = message
         view.start_turn_timer()
+        
+    # --- NOVO COMANDO /VIAJAR ---
+    @app_commands.command(name="viajar", description="Viaje para a cidade atual (o servidor onde o comando é usado).")
+    async def viajar(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        
+        user_id_str = str(interaction.user.id)
+        cidade_alvo_id = str(interaction.guild.id)
+        cidade_alvo_nome = interaction.guild.name
+
+        char_ref = db.collection('characters').document(user_id_str)
+        char_doc = char_ref.get()
+
+        if not char_doc.exists:
+            await interaction.followup.send("Você precisa ter um personagem para viajar. Use `/perfil` para criar um.", ephemeral=True)
+            return
+            
+        char_data = char_doc.to_dict()
+        localizacao_atual_id = char_data.get('localizacao_id')
+
+        # Verifica se o jogador já está na cidade
+        if localizacao_atual_id == cidade_alvo_id:
+            await interaction.followup.send(f"Você já está em **{cidade_alvo_nome}**!", ephemeral=True)
+            return
+            
+        # Atualiza a localização no Firebase
+        char_ref.update({
+            'localizacao_id': cidade_alvo_id
+        })
+
+        embed = discord.Embed(
+            title="🛶 Viagem Concluída!",
+            description=f"Você chegou à cidade de **{cidade_alvo_nome}**.\nSua localização foi atualizada.",
+            color=discord.Color.blue()
+        )
+        embed.set_footer(text="Explore os arredores com /explorar.")
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(MundoCog(bot))

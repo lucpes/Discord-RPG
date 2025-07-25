@@ -380,6 +380,8 @@ class ClasseSelectionView(discord.ui.View):
         char_ref.set({
             'classe': class_name, 'nivel': 1, 'xp': 0, 'moedas': 100, 'banco': 0, 'diamantes': 5,
             
+            'localizacao_id': str(interaction.guild.id),
+            
             'habilidades_equipadas': initial_skills,
             'habilidades_conhecidas': initial_skills
         })

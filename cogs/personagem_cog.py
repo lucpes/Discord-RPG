@@ -45,6 +45,14 @@ class PersonagemCog(commands.Cog):
                 if instance_doc.exists:
                     equipped_items_data.append({"instance_data": instance_doc.to_dict()})
             
+            # --- MUDANÇA NO RODAPÉ DO EMBED ---
+            # Busca o nome da cidade a partir do ID salvo
+            cidade_atual_nome = "Lugar Desconhecido"
+            if cidade_id := char_data.get('localizacao_id'):
+                if guild := self.bot.get_guild(int(cidade_id)):
+                    cidade_atual_nome = guild.name
+            
+            
             # 3. Chama o calculador para obter os status finais
             stats_finais = calcular_stats_completos(char_data, equipped_items_data)
 
@@ -100,9 +108,9 @@ class PersonagemCog(commands.Cog):
             habilidades_str = ">>> " + "\n".join(f"• {hab}" for hab in habilidades_nomes) if habilidades_nomes else "Nenhuma habilidade equipada."
             embed.add_field(name="Habilidades Equipadas", value=habilidades_str, inline=False)
             
-            # Guilda e ID no Rodapé
             game_id = player_data.get('game_id', 'N/A')
-            embed.set_footer(text=f"Guilda: Nenhuma | ID de Jogo: {game_id}")
+            # Atualiza o rodapé para incluir a localização
+            embed.set_footer(text=f"Localização: {cidade_atual_nome} | ID de Jogo: {game_id}")
 
             view = PerfilView()
             # Usamos followup.send pois a interação foi "deferida" no início
