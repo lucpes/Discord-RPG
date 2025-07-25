@@ -10,7 +10,7 @@ from data.monstros_library import MONSTROS
 from data.habilidades_library import HABILIDADES
 from data.classes_data import CLASSES_DATA
 from game.stat_calculator import calcular_stats_completos
-from game.motor_combate import processar_acao_jogador, processar_turno_monstro
+from game.motor_combate import processar_acao_jogador, processar_turno_monstro, processar_efeitos_de_turno
 
 def criar_barra_status(atual: int, maximo: int, cor_cheia: str, tamanho: int = 10) -> str:
     if maximo <= 0: maximo = 1
@@ -76,9 +76,24 @@ class BattleView(discord.ui.View):
         await interaction.response.defer()
         if self.timer_task: self.timer_task.cancel()
         
+        # --- NOVO FLUXO DE TURNO ---
+        # 1. EFEITOS NO INÍCIO DO TURNO DO JOGADOR
+        log_efeitos_jogador = processar_efeitos_de_turno(self.jogador)
+        self.log_batalha = log_efeitos_jogador.strip()
+
+        if self.jogador['vida_atual'] <= 0: return await self.derrota()
+
+        # 2. VERIFICA SE O JOGADOR ESTÁ INCAPACITADO
+        if any(e['id'] == 'CONGELAMENTO' for e in self.jogador.get('efeitos_ativos', [])):
+            self.log_batalha += "\nVocê está congelado e perdeu o seu turno!"
+            await self.message.edit(embed=self.create_battle_embed(turno_de='jogador'))
+            await self.process_monster_turn() # Pula direto para o turno do monstro
+            return
+
+        # 3. AÇÃO DO JOGADOR (se não estiver incapacitado)
         skill_id = interaction.data['custom_id']
         resultado_jogador = processar_acao_jogador(self.jogador, self.monstro, skill_id)
-        self.log_batalha = resultado_jogador.get('log', 'Um erro ocorreu.')
+        self.log_batalha += f"\n{resultado_jogador.get('log', '')}"
         
         for child in self.children: child.disabled = True
         await self.message.edit(embed=self.create_battle_embed(turno_de='jogador'), view=self)
@@ -99,17 +114,22 @@ class BattleView(discord.ui.View):
         await self.message.edit(embed=self.create_battle_embed(turno_de='monstro'), view=self)
         await asyncio.sleep(3)
         
-        resultado_monstro = processar_turno_monstro(self.monstro, self.jogador)
-        # Pega a primeira linha do log (ação do jogador ou msg de timeout) e junta com a do monstro
-        primeira_linha_log = self.log_batalha.splitlines()[0]
-        self.log_batalha = f"{primeira_linha_log}\n{resultado_monstro['log']}"
+        # --- LÓGICA DE LOG CORRIGIDA ---
+        log_completo_jogador = self.log_batalha # Salva o log do turno do jogador
+        
+        log_efeitos_monstro = processar_efeitos_de_turno(self.monstro)
+        if self.monstro['vida_atual'] <= 0: return await self.vitoria()
 
+        resultado_monstro = processar_turno_monstro(self.monstro, self.jogador)
+        
+        # Junta o log do jogador + log de efeitos do monstro + log de ação do monstro
+        self.log_batalha = f"{log_completo_jogador}{log_efeitos_monstro}\n{resultado_monstro['log']}"
+        
         if self.jogador['vida_atual'] <= 0: return await self.derrota()
         
-        # Reativa os botões para o próximo turno do jogador
         self.add_skill_buttons()
         await self.message.edit(embed=self.create_battle_embed(turno_de='jogador'), view=self)
-        self.start_turn_timer() # Inicia o timer para o novo turno
+        self.start_turn_timer()
 
     # (O resto do código: create_battle_embed, on_stop, vitoria, derrota, etc. continua o mesmo)
     # ...
@@ -196,7 +216,9 @@ class MundoCog(commands.Cog):
             "habilidades_equipadas": char_data.get('habilidades_equipadas', []),
             "classe": char_data.get('classe'),
             "imagem_url": CLASSES_DATA.get(char_data.get('classe'), {}).get('image_url'),
-            "nick": player_data.get('nick', interaction.user.display_name)
+            "nick": player_data.get('nick', interaction.user.display_name),
+            "nome": player_data.get('nick', interaction.user.display_name), # Adicionado para consistência
+            "efeitos_ativos": [] # NOVO: Inicializa a lista de efeitos
         }
         monster_id = random.choice(list(MONSTROS.keys()))
         monstro_template = MONSTROS.get(monster_id)
@@ -207,7 +229,8 @@ class MundoCog(commands.Cog):
             "id": monster_id, "nome": monstro_template['nome'], "emoji": monstro_template['emoji'],
             "stats": monstro_template['stats'], "vida_atual": monstro_template['stats']['VIDA_MAXIMA'],
             "xp_recompensa": monstro_template.get('xp_recompensa', 0),
-            "imagem_url": monstro_template.get('imagem_url')
+            "imagem_url": monstro_template.get('imagem_url'),
+            "efeitos_ativos": [] # NOVO: Inicializa a lista de efeitos
         }
         view = BattleView(author=interaction.user, bot=self.bot, jogador_data=jogador_para_batalha, monstro_data=monstro_para_batalha)
         embed = view.create_battle_embed(turno_de='jogador')

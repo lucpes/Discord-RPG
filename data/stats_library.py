@@ -19,6 +19,8 @@ STATS = {
     "DEFESA_BUFF": {"nome": "Bônus de Defesa", "emoji": "🔼"},
     "DURACAO": {"nome": "Duração (turnos)", "emoji": "⏳"},
     "LENTIDAO": {"nome": "Lentidão (stacks)", "emoji": "🔽"},
+    "ENVENENAMENTO": {"nome": "Envenenamento", "emoji": "☠️"}, # NOVO
+    "CONGELAMENTO": {"nome": "Congelamento", "emoji": "🥶"}, # NOVO
 }
 
 def format_stat(stat_id, value):

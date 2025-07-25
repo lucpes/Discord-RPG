@@ -46,6 +46,18 @@ HABILIDADES = {
         "descricao": "Invoca um meteoro que causa dano massivo em área.",
         "efeitos": {"DANO_MAGICO": 200}
     },
+    # --- ATUALIZANDO HABILIDADE DE MAGO ---
+    "MAG_002": {
+        "nome": "Raio Congelante", "emoji": "❄️", "tipo": "ATIVA",
+        "custo_mana": 30,
+        "descricao": "Dispara um raio de gelo que causa dano e pode congelar o inimigo por um turno.",
+        "efeitos": {
+            "DANO_MAGICO": 20,
+            "CONGELAMENTO": { # Efeito de status
+                "duracao": 1
+            }
+        }
+    },
     # Exemplo de Passiva de Mago
     "MAG_P01": {
         "nome": "Inteligência Arcana", "emoji": "🧠", "tipo": "PASSIVA",
@@ -62,3 +74,38 @@ HABILIDADES = {
         }
     },
 }
+
+
+"""
+HABILIDADES = {
+    # ... (habilidades existentes)
+    
+    # --- HABILIDADES DE ASSASSINO (Exemplo) ---
+    "LAMINA_VENENOSA": {
+        "nome": "Lâmina Venenosa", "emoji": "☠️", "tipo": "ATIVA",
+        "custo_mana": 25,
+        "descricao": "Um ataque rápido que aplica veneno no alvo, causando dano por vários turnos.",
+        "efeitos": {
+            "DANO": 10, # Dano inicial do golpe
+            "ENVENENAMENTO": { # Efeito de status
+                "dano": 8,
+                "duracao": 3
+            }
+        }
+    },
+    
+    # --- ATUALIZANDO HABILIDADE DE MAGO ---
+    "MAG_002": {
+        "nome": "Raio Congelante", "emoji": "❄️", "tipo": "ATIVA",
+        "custo_mana": 30,
+        "descricao": "Dispara um raio de gelo que causa dano e pode congelar o inimigo por um turno.",
+        "efeitos": {
+            "DANO_MAGICO": 20,
+            "CONGELAMENTO": { # Efeito de status
+                "duracao": 1
+            }
+        }
+    },
+    # ...
+}
+"""
