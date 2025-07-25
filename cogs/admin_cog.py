@@ -5,6 +5,7 @@ from discord.ext import commands
 from firebase_config import db
 from data.stats_library import format_stat
 from .item_cog import get_and_increment_item_id
+from data.construcoes_library import CONSTRUCOES
 
 # Importa nossa nova função de busca
 from utils.converters import find_player_by_game_id
@@ -90,6 +91,40 @@ class AdminCog(commands.Cog):
             await ctx.reply(embed=embed)
         else:
             await ctx.reply(f"✅ {alvo.mention} recebeu `{result['xp_ganho']}` de XP.\nXP Atual: `{result['xp_atual']}` / `{result['xp_para_upar']}`")
+            
+    # --- NOVO COMANDO PARA CONFIGURAR A CIDADE ---
+    @commands.command(name="configurar_cidade")
+    @commands.has_permissions(administrator=True)
+    async def configurar_cidade(self, ctx: commands.Context):
+        """[Admin Servidor] Inicializa o servidor atual como uma cidade no jogo."""
+        
+        cidade_id = str(ctx.guild.id)
+        cidade_ref = db.collection('cidades').document(cidade_id)
+
+        if cidade_ref.get().exists:
+            await ctx.reply(f"❗ A cidade de **{ctx.guild.name}** já está configurada no jogo.")
+            return
+
+        # --- NOVA LÓGICA DE CRIAÇÃO DE CONSTRUÇÕES ---
+        construcoes_iniciais = {}
+        for building_id in CONSTRUCOES.keys():
+            # Mina e Floresta começam no nível 1, o resto no nível 0.
+            if building_id in ["MINA", "FLORESTA"]:
+                construcoes_iniciais[building_id] = {"nivel": 1}
+            else:
+                construcoes_iniciais[building_id] = {"nivel": 0}
+
+        # Salva a nova cidade no Firebase
+        cidade_data = {
+            "nome": ctx.guild.name,
+            "descricao": "Uma cidade pronta para crescer sob uma nova liderança.",
+            "construcoes": construcoes_iniciais,
+            # --- SALVA O ID DO PREFEITO ---
+            "prefeito_id": str(ctx.author.id) 
+        }
+        cidade_ref.set(cidade_data)
+
+        await ctx.reply(f"✅ A cidade de **{ctx.guild.name}** foi fundada com sucesso e você, {ctx.author.mention}, é o(a) novo(a) Prefeito(a)!")
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(AdminCog(bot))

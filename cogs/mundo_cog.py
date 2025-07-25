@@ -14,6 +14,8 @@ from game.motor_combate import (
     processar_acao_jogador, processar_turno_monstro, 
     aplicar_efeitos_periodicos, decrementar_duracao_efeitos, esta_incapacitado
 )
+from data.construcoes_library import CONSTRUCOES
+
 
 def criar_barra_status(atual: int, maximo: int, cor_cheia: str, tamanho: int = 10) -> str:
     if maximo <= 0: maximo = 1
@@ -284,6 +286,77 @@ class MundoCog(commands.Cog):
             color=discord.Color.blue()
         )
         embed.set_footer(text="Explore os arredores com /explorar.")
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        
+    # --- NOVO COMANDO /CIDADE ---
+    @app_commands.command(name="cidade", description="Mostra as informações da cidade atual.")
+    async def cidade(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        
+        cidade_id = str(interaction.guild.id)
+        cidade_ref = db.collection('cidades').document(cidade_id)
+        cidade_doc = cidade_ref.get()
+
+        if not cidade_doc.exists:
+            await interaction.followup.send(
+                "Este lugar parece selvagem e não civilizado...\n"
+                "*Um administrador do servidor precisa usar o comando `!configurar_cidade` para fundar a cidade.*",
+                ephemeral=True
+            )
+            return
+
+        cidade_data = cidade_doc.to_dict()
+        
+        # --- NOVO EMBED REDESENHADO ---
+        embed = discord.Embed(
+            title=f"📍 Bem-vindo(a) a {cidade_data.get('nome', 'Cidade Desconhecida')}!",
+            description=f"*{cidade_data.get('descricao', 'Um lugar com muito a se explorar.')}*",
+            color=discord.Color.from_rgb(128, 174, 184) # Um tom de azul acinzentado
+        )
+
+        # Busca o nome do prefeito
+        prefeito_nome = "Ninguém"
+        if prefeito_id := cidade_data.get('prefeito_id'):
+            try:
+                prefeito_user = await self.bot.fetch_user(int(prefeito_id))
+                prefeito_nome = prefeito_user.display_name
+            except discord.NotFound:
+                prefeito_nome = "Um líder esquecido"
+        
+        embed.add_field(name="👑 Prefeito(a)", value=prefeito_nome, inline=False)
+        embed.add_field(name="\u200b", value="\u200b", inline=False) # Linha em branco para espaçamento
+
+        # Agrupando construções por categoria
+        recursos_str = ""
+        criacao_str = ""
+        servicos_str = ""
+
+        construcoes_data = cidade_data.get('construcoes', {})
+
+        for building_id, building_info in CONSTRUCOES.items():
+            if building_id in construcoes_data:
+                nivel = construcoes_data[building_id].get('nivel')
+                emoji = building_info.get('emoji', '')
+                nome = building_info.get('nome', building_id)
+                
+                # Exibe "Não construído" para nível 0
+                nivel_str = f"Nível {nivel}" if nivel > 0 else "*(Não Construído)*"
+                linha = f"{emoji} **{nome}** - {nivel_str}\n"
+
+                if building_id in ["MINA", "FLORESTA"]:
+                    recursos_str += linha
+                elif building_id in ["FORJA", "MESA_TRABALHO", "MESA_POCOES"]:
+                    criacao_str += linha
+                else:
+                    servicos_str += linha
+        
+        if recursos_str:
+            embed.add_field(name="Recursos", value=recursos_str, inline=True)
+        if criacao_str:
+            embed.add_field(name="Criação", value=criacao_str, inline=True)
+        if servicos_str:
+            embed.add_field(name="Serviços", value=servicos_str, inline=True)
         
         await interaction.followup.send(embed=embed, ephemeral=True)
         
