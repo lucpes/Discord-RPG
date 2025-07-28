@@ -314,14 +314,13 @@ class MundoCog(commands.Cog):
 
         cidade_data = cidade_doc.to_dict()
         
-        # --- NOVO EMBED REDESENHADO ---
+        # --- NOVO EMBED COM DESTAQUE PARA O CENTRO DA VILA ---
         embed = discord.Embed(
-            title=f"📍 Bem-vindo(a) a {cidade_data.get('nome', 'Cidade Desconhecida')}!",
+            title=f"📍 {cidade_data.get('nome', 'Cidade Desconhecida')}",
             description=f"*{cidade_data.get('descricao', 'Um lugar com muito a se explorar.')}*",
-            color=discord.Color.from_rgb(128, 174, 184) # Um tom de azul acinzentado
+            color=discord.Color.from_rgb(128, 174, 184)
         )
 
-        # Busca o nome do prefeito
         prefeito_nome = "Ninguém"
         if prefeito_id := cidade_data.get('prefeito_id'):
             try:
@@ -331,22 +330,32 @@ class MundoCog(commands.Cog):
                 prefeito_nome = "Um líder esquecido"
         
         embed.add_field(name="👑 Prefeito(a)", value=prefeito_nome, inline=False)
-        embed.add_field(name="\u200b", value="\u200b", inline=False) # Linha em branco para espaçamento
+        
+        # --- SEÇÃO DE DESTAQUE PARA O CENTRO DA VILA ---
+        construcoes_data = cidade_data.get('construcoes', {})
+        centro_vila_data = construcoes_data.get("CENTRO_VILA")
+        if centro_vila_data:
+            cv_info = CONSTRUCOES["CENTRO_VILA"]
+            cv_nivel = centro_vila_data.get("nivel", 0)
+            cv_str = (
+                f"{cv_info['emoji']} **{cv_info['nome']} - Nível {cv_nivel}**\n"
+                f"*{cv_info['descricao']}*"
+            )
+            embed.add_field(name="--- 🏛️ Construção Principal 🏛️ ---", value=cv_str, inline=False)
 
-        # Agrupando construções por categoria
+        # --- SEÇÃO DAS OUTRAS CONSTRUÇÕES ---
         recursos_str = ""
         criacao_str = ""
         servicos_str = ""
 
-        construcoes_data = cidade_data.get('construcoes', {})
-
         for building_id, building_info in CONSTRUCOES.items():
+            if building_id == "CENTRO_VILA": continue # Pula o centro da vila para não repetir
+
             if building_id in construcoes_data:
-                nivel = construcoes_data[building_id].get('nivel')
+                nivel = construcoes_data[building_id].get('nivel', 0)
                 emoji = building_info.get('emoji', '')
                 nome = building_info.get('nome', building_id)
                 
-                # Exibe "Não construído" para nível 0
                 nivel_str = f"Nível {nivel}" if nivel > 0 else "*(Não Construído)*"
                 linha = f"{emoji} **{nome}** - {nivel_str}\n"
 
@@ -357,12 +366,9 @@ class MundoCog(commands.Cog):
                 else:
                     servicos_str += linha
         
-        if recursos_str:
-            embed.add_field(name="Recursos", value=recursos_str, inline=True)
-        if criacao_str:
-            embed.add_field(name="Criação", value=criacao_str, inline=True)
-        if servicos_str:
-            embed.add_field(name="Serviços", value=servicos_str, inline=True)
+        if recursos_str: embed.add_field(name="Recursos", value=recursos_str, inline=True)
+        if criacao_str: embed.add_field(name="Criação", value=criacao_str, inline=True)
+        if servicos_str: embed.add_field(name="Serviços", value=servicos_str, inline=True)
         
         await interaction.followup.send(embed=embed, ephemeral=True)
         

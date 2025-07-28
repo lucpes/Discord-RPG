@@ -98,39 +98,168 @@ class AdminCog(commands.Cog):
         else:
             await ctx.reply(f"✅ {alvo.mention} recebeu `{result['xp_ganho']}` de XP.\nXP Atual: `{result['xp_atual']}` / `{result['xp_para_upar']}`")
             
-    # --- NOVO COMANDO PARA CONFIGURAR A CIDADE ---
+    # --- A NOVA VIEW DE MELHORIA ---
+class UpgradeView(discord.ui.View):
+    def __init__(self, author: discord.User, cidade_data: dict):
+        super().__init__(timeout=300)
+        self.author = author
+        self.cidade_data = cidade_data
+        self.selected_building_id = None
+
+        # Cria as opções para o menu dropdown
+        options = []
+        construcoes_atuais = self.cidade_data.get('construcoes', {})
+        for building_id, building_info in CONSTRUCOES.items():
+            nivel_atual = construcoes_atuais.get(building_id, {}).get('nivel', 0)
+            options.append(discord.SelectOption(
+                label=f"{building_info['nome']} (Nível {nivel_atual})",
+                value=building_id,
+                emoji=building_info['emoji']
+            ))
+        
+        self.select_menu = discord.ui.Select(placeholder="Selecione uma construção para ver os detalhes...", options=options)
+        self.select_menu.callback = self.on_select
+        self.add_item(self.select_menu)
+        
+        self.upgrade_button = discord.ui.Button(label="Iniciar Melhoria", style=discord.ButtonStyle.success, disabled=True)
+        self.upgrade_button.callback = self.on_upgrade
+        self.add_item(self.upgrade_button)
+
+    async def on_select(self, interaction: discord.Interaction):
+        """Chamado quando uma construção é selecionada no menu."""
+        self.selected_building_id = self.select_menu.values[0]
+        
+        # Cria o novo embed com os detalhes da melhoria
+        embed = self.create_embed()
+        
+        self.upgrade_button.disabled = False # Ativa o botão de melhoria
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    async def on_upgrade(self, interaction: discord.Interaction):
+        """Chamado quando o botão 'Iniciar Melhoria' é clicado."""
+        await interaction.response.defer(ephemeral=True)
+        
+        # 1. Verifica se já há uma construção em andamento
+        if self.cidade_data.get('construcao_em_andamento'):
+            await interaction.followup.send("❌ Já existe uma melhoria em andamento nesta cidade!", ephemeral=True)
+            return
+
+        # 2. Pega os dados da construção e do próximo nível
+        building_info = CONSTRUCOES[self.selected_building_id]
+        nivel_atual = self.cidade_data['construcoes'][self.selected_building_id]['nivel']
+        
+        if nivel_atual >= len(building_info.get('niveis', [])):
+            await interaction.followup.send("✅ Esta construção já está no nível máximo!", ephemeral=True)
+            return
+
+        upgrade_data = building_info['niveis'][nivel_atual]
+        custo = upgrade_data['custo']
+        
+        # 3. Verifica o nível do Centro da Vila (a regra que criamos!)
+        if self.selected_building_id != "CENTRO_VILA":
+            nivel_centro_vila = self.cidade_data['construcoes']['CENTRO_VILA']['nivel']
+            if nivel_atual >= nivel_centro_vila:
+                await interaction.followup.send(f"❌ A {building_info['nome']} não pode ter um nível maior que o Centro da Vila (Nível {nivel_centro_vila})!", ephemeral=True)
+                return
+
+        # 4. Verifica se a cidade tem recursos suficientes
+        tesouro_cidade = self.cidade_data.get('tesouro', {})
+        for recurso, valor in custo.items():
+            if tesouro_cidade.get(recurso, 0) < valor:
+                await interaction.followup.send(f"❌ A cidade não tem recursos suficientes! Precisa de {valor} {recurso}, mas só tem {tesouro_cidade.get(recurso, 0)}.", ephemeral=True)
+                return
+        
+        # 5. Se tudo estiver certo, inicia a construção!
+        # Deduz os recursos
+        for recurso, valor in custo.items():
+            tesouro_cidade[recurso] -= valor
+        
+        # Define a construção em andamento
+        tempo_s = upgrade_data['tempo_s']
+        termina_em = datetime.now(timezone.utc) + timedelta(seconds=tempo_s)
+        construcao_em_andamento = {
+            "id_construcao": self.selected_building_id,
+            "nivel_alvo": nivel_atual + 1,
+            "termina_em": termina_em
+        }
+
+        # Atualiza o Firebase
+        cidade_ref = db.collection('cidades').document(str(interaction.guild_id))
+        cidade_ref.update({
+            'tesouro': tesouro_cidade,
+            'construcao_em_andamento': construcao_em_andamento
+        })
+
+        await interaction.followup.send(f"✅ Melhoria da **{building_info['nome']}** para o **Nível {nivel_atual + 1}** iniciada! Ela estará pronta em <t:{int(termina_em.timestamp())}:R>.", ephemeral=True)
+        self.stop()
+        await interaction.message.delete()
+
+    def create_embed(self) -> discord.Embed:
+        embed = discord.Embed(title="🏗️ Painel de Melhoria da Cidade", description="Selecione uma construção para ver os custos e tempo de melhoria.", color=discord.Color.orange())
+        
+        # Mostra os recursos atuais da cidade
+        tesouro = self.cidade_data.get('tesouro', {})
+        tesouro_str = f"🪙 Moedas: {tesouro.get('MOEDAS', 0):,}"
+        embed.add_field(name="Tesouro da Cidade", value=tesouro_str, inline=False)
+        
+        if self.selected_building_id:
+            building_info = CONSTRUCOES[self.selected_building_id]
+            nivel_atual = self.cidade_data['construcoes'][self.selected_building_id]['nivel']
+            
+            info_str = f"Nível Atual: **{nivel_atual}**\n"
+            
+            if nivel_atual < len(building_info.get('niveis', [])):
+                upgrade_data = building_info['niveis'][nivel_atual]
+                custo = upgrade_data['custo']
+                tempo_s = upgrade_data['tempo_s']
+                
+                custo_str = ", ".join([f"{valor:,} {recurso.capitalize()}" for recurso, valor in custo.items()])
+                
+                info_str += f"Próximo Nível: **{nivel_atual + 1}**\n"
+                info_str += f"Custo: **{custo_str}**\n"
+                info_str += f"Tempo de Construção: **{timedelta(seconds=tempo_s)}**"
+            else:
+                info_str += "**NÍVEL MÁXIMO ALCANÇADO**"
+
+            embed.add_field(name=f"{building_info['emoji']} {building_info['nome']}", value=info_str, inline=False)
+        return embed
+
+# --- O COG DE ADMINISTRAÇÃO ---
+class AdminCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+
     @commands.command(name="configurar_cidade")
     @commands.has_permissions(administrator=True)
     async def configurar_cidade(self, ctx: commands.Context):
-        """[Admin Servidor] Inicializa o servidor atual como uma cidade no jogo."""
-        
         cidade_id = str(ctx.guild.id)
         cidade_ref = db.collection('cidades').document(cidade_id)
+        cidade_doc = cidade_ref.get()
 
-        if cidade_ref.get().exists:
-            await ctx.reply(f"❗ A cidade de **{ctx.guild.name}** já está configurada no jogo.")
-            return
+        if not cidade_doc.exists:
+            # Funda a cidade
+            construcoes_iniciais = {}
+            for building_id in CONSTRUCOES.keys():
+                if building_id in ["CENTRO_VILA", "MINA", "FLORESTA"]:
+                    construcoes_iniciais[building_id] = {"nivel": 1}
+                else:
+                    construcoes_iniciais[building_id] = {"nivel": 0}
 
-        # --- NOVA LÓGICA DE CRIAÇÃO DE CONSTRUÇÕES ---
-        construcoes_iniciais = {}
-        for building_id in CONSTRUCOES.keys():
-            # Mina e Floresta começam no nível 1, o resto no nível 0.
-            if building_id in ["MINA", "FLORESTA"]:
-                construcoes_iniciais[building_id] = {"nivel": 1}
-            else:
-                construcoes_iniciais[building_id] = {"nivel": 0}
-
-        # Salva a nova cidade no Firebase
-        cidade_data = {
-            "nome": ctx.guild.name,
-            "descricao": "Uma cidade pronta para crescer sob uma nova liderança.",
-            "construcoes": construcoes_iniciais,
-            # --- SALVA O ID DO PREFEITO ---
-            "prefeito_id": str(ctx.author.id) 
-        }
-        cidade_ref.set(cidade_data)
-
-        await ctx.reply(f"✅ A cidade de **{ctx.guild.name}** foi fundada com sucesso e você, {ctx.author.mention}, é o(a) novo(a) Prefeito(a)!")
+            cidade_data = {
+                "nome": ctx.guild.name,
+                "descricao": "Uma cidade pronta para crescer.",
+                "construcoes": construcoes_iniciais,
+                "prefeito_id": str(ctx.author.id),
+                "tesouro": {"MOEDAS": 1000} # Tesouro inicial
+            }
+            cidade_ref.set(cidade_data)
+            await ctx.reply(f"✅ A cidade de **{ctx.guild.name}** foi fundada! Use `!configurar_cidade` novamente para abrir o painel de melhorias.")
+        else:
+            # Abre o painel de melhorias
+            cidade_data = cidade_doc.to_dict()
+            view = UpgradeView(author=ctx.author, cidade_data=cidade_data)
+            embed = view.create_embed()
+            await ctx.send(embed=embed, view=view)
         
         
     # --- NOVA FERRAMENTA DE DIAGNÓSTICO ---
