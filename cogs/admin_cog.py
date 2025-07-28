@@ -6,9 +6,15 @@ from firebase_config import db
 from data.stats_library import format_stat
 from .item_cog import get_and_increment_item_id
 from data.construcoes_library import CONSTRUCOES
+from datetime import datetime, timedelta, timezone
 
 # Importa nossa nova função de busca
 from utils.converters import find_player_by_game_id
+
+# Importa o 'bucket' que configuramos
+from firebase_config import db, bucket
+from data.stats_library import format_stat
+
 
 class AdminCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -125,6 +131,85 @@ class AdminCog(commands.Cog):
         cidade_ref.set(cidade_data)
 
         await ctx.reply(f"✅ A cidade de **{ctx.guild.name}** foi fundada com sucesso e você, {ctx.author.mention}, é o(a) novo(a) Prefeito(a)!")
+        
+        
+    # --- NOVA FERRAMENTA DE DIAGNÓSTICO ---
+    @commands.command(name="debugstorage")
+    @commands.is_owner()
+    async def debug_storage(self, ctx: commands.Context, *, file_path: str):
+        """[Dono] Testa a conexão e a geração de URL para um arquivo no Firebase Storage."""
+        
+        await ctx.send(f"🔎 **Iniciando diagnóstico para o caminho:** `{file_path}`")
+        
+        report = []
+        
+        # 1. Verifica a conexão com o bucket
+        try:
+            report.append(f"✅ **Bucket Conectado:** `{bucket.name}`")
+        except Exception as e:
+            report.append(f"❌ **Falha na Conexão com o Bucket:** `{e}`")
+            await ctx.send("\n".join(report))
+            return
+            
+        # 2. Verifica se o arquivo (blob) existe no caminho especificado
+        blob = bucket.blob(file_path)
+        if blob.exists():
+            report.append(f"✅ **Arquivo Encontrado:** O arquivo `{file_path}` existe no Storage.")
+        else:
+            report.append(f"❌ **Arquivo NÃO Encontrado:** Verifique se o caminho e o nome do arquivo estão **exatamente** corretos (incluindo letras maiúsculas/minúsculas e a extensão `.png`).")
+            await ctx.send("\n".join(report))
+            return
+            
+        # 3. Tenta gerar a URL assinada
+        try:
+            expiration_time = datetime.now(timezone.utc) + timedelta(minutes=15)
+            signed_url = blob.generate_signed_url(expiration=expiration_time)
+            report.append(f"✅ **URL Gerada com Sucesso!**")
+            
+            # Envia a URL para teste
+            await ctx.send("\n".join(report))
+            
+            embed = discord.Embed(title="Teste de Imagem")
+            embed.set_image(url=signed_url)
+            await ctx.send("**Teste a URL abaixo no seu navegador e veja se a imagem aparece no embed:**", embed=embed)
+            await ctx.send(f"Link direto (expira em 15 min):\n{signed_url}")
+            
+        except Exception as e:
+            report.append(f"❌ **Falha ao Gerar URL Assinada:** `{e}`")
+            report.append("\n**Causa Mais Provável:** A conta de serviço do bot (`firebase-adminsdk-...`) não tem a permissão **'Criador de token da conta de serviço' (Service Account Token Creator)** no Google Cloud IAM. Por favor, verifique o Passo 4 da nossa conversa anterior novamente.")
+            await ctx.send("\n".join(report))
+
+    # --- NOVA FERRAMENTA DE DIAGNÓSTICO DEFINITIVA ---
+    @commands.command(name="listarstorage")
+    @commands.is_owner()
+    async def listar_storage(self, ctx: commands.Context, *, prefixo: str = None):
+        """[Dono] Lista os arquivos no Firebase Storage a partir de um prefixo (pasta)."""
+        
+        if prefixo is None:
+            await ctx.send("Por favor, forneça um prefixo (pasta) para listar. Ex: `!listarstorage Img-Personagens/`")
+            return
+
+        try:
+            blobs = bucket.list_blobs(prefix=prefixo)
+            file_list = [blob.name for blob in blobs]
+
+            if not file_list:
+                await ctx.send(f"Nenhum arquivo encontrado no caminho `{prefixo}`. Verifique o nome da pasta.")
+                return
+
+            # Formata a lista para exibição
+            formatted_list = "```\n" + "\n".join(f"- {name}" for name in file_list) + "\n```"
+            
+            embed = discord.Embed(
+                title=f"📦 Arquivos Encontrados em '{prefixo}'",
+                description=f"Estes são os caminhos exatos que o bot está vendo. Copie e cole o caminho desejado no seu arquivo `data/classes_data.py`.\n{formatted_list}",
+                color=discord.Color.green()
+            )
+            await ctx.send(embed=embed)
+
+        except Exception as e:
+            await ctx.send(f"Ocorreu um erro ao listar os arquivos: `{e}`")
+            
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(AdminCog(bot))

@@ -6,6 +6,7 @@ from data.habilidades_library import HABILIDADES
 from data.classes_data import CLASSES_DATA, ORDERED_CLASSES
 from data.game_constants import EQUIPMENT_SLOTS, RARITY_EMOJIS # Importa os novos dados
 from data.stats_library import format_stat
+from utils.storage_helper import get_signed_url
 
 # ---------------------------------------------------------------------------------
 # VIEW DO INVENTÁRIO (Totalmente Redesenhada)
@@ -354,9 +355,10 @@ class ClasseSelectionView(discord.ui.View):
 
         # --- CORREÇÃO APLICADA AQUI ---
         # Pega a URL da imagem e verifica se ela existe antes de usá-la
-        image_url = class_data.get('image_url')
-        if image_url and image_url != "...": # Adicionamos uma checagem extra
-            embed.set_image(url=image_url)
+        image_path = class_data.get('profile_image_path')
+        if image_path:
+            public_url = get_signed_url(image_path)
+            embed.set_image(url=public_url)
         # Se a URL não for válida, o embed será enviado sem a imagem, evitando o erro.
 
         # Busca os nomes das habilidades a partir dos IDs para exibir

@@ -8,6 +8,7 @@ from data.classes_data import CLASSES_DATA
 from data.game_config import calcular_xp_para_nivel
 from data.habilidades_library import HABILIDADES
 from ui.views import ClasseSelectionView, PerfilView
+from utils.storage_helper import get_signed_url
 
 # Importa nosso novo calculador de status
 from game.stat_calculator import calcular_stats_completos
@@ -65,7 +66,10 @@ class PersonagemCog(commands.Cog):
             )
             classe_info = CLASSES_DATA.get(char_data.get('classe'))
             if classe_info:
-                embed.set_thumbnail(url=classe_info['image_url'])
+                image_path = classe_info.get('profile_image_path')
+                if image_path:
+                    public_url = get_signed_url(image_path)
+                    embed.set_thumbnail(url=public_url)
 
             # Bloco de Atributos de Combate (agora sem ler/escrever no DB)
             vida_maxima_final = stats_finais.get('VIDA_MAXIMA', 100)

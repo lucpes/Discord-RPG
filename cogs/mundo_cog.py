@@ -15,6 +15,7 @@ from game.motor_combate import (
     aplicar_efeitos_periodicos, decrementar_duracao_efeitos, esta_incapacitado
 )
 from data.construcoes_library import CONSTRUCOES
+from utils.storage_helper import get_signed_url
 
 
 def criar_barra_status(atual: int, maximo: int, cor_cheia: str, tamanho: int = 10) -> str:
@@ -41,7 +42,7 @@ class BattleView(discord.ui.View):
     def add_skill_buttons(self):
         # ... (esta função não precisa de alterações)
         self.clear_items()
-        ataque_basico_button = discord.ui.Button(label="Ataque Básico", style=discord.ButtonStyle.secondary, custom_id="basic_attack", emoji="🗡️")
+        ataque_basico_button = discord.ui.Button(label="", style=discord.ButtonStyle.secondary, custom_id="basic_attack", emoji="🗡️")
         ataque_basico_button.callback = self.on_skill_use
         self.add_item(ataque_basico_button)
         for skill_id in self.jogador['habilidades_equipadas']:
@@ -222,13 +223,18 @@ class MundoCog(commands.Cog):
         mana_maxima_final = stats_completos.get('MANA_MAXIMA', 100)
         vida_atual_corrigida = min(char_data.get('vida_atual', vida_maxima_final), vida_maxima_final)
         mana_atual_corrigida = min(char_data.get('mana_atual', mana_maxima_final), mana_maxima_final)
+        
+        classe_info = CLASSES_DATA.get(char_data.get('classe'), {})
+        combat_path = classe_info.get('combat_image_path')
+        combat_url = get_signed_url(combat_path) if combat_path else None
+        
         jogador_para_batalha = {
             "stats": stats_completos,
             "vida_atual": vida_atual_corrigida,
             "mana_atual": mana_atual_corrigida,
             "habilidades_equipadas": char_data.get('habilidades_equipadas', []),
             "classe": char_data.get('classe'),
-            "imagem_url": CLASSES_DATA.get(char_data.get('classe'), {}).get('image_url'),
+            "imagem_url": combat_url,
             "nick": player_data.get('nick', interaction.user.display_name),
             "nome": player_data.get('nick', interaction.user.display_name), # Adicionado para consistência
             "efeitos_ativos": [] # NOVO: Inicializa a lista de efeitos

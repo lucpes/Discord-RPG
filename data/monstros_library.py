@@ -5,7 +5,7 @@ MONSTROS = {
     "goblin_fraco": {
         "nome": "Goblin Fraco",
         "emoji": "👺",
-        "imagem_url": "https://i.pinimg.com/736x/47/e7/29/47e7299bf52940434ffa46f2334b4110.jpg",
+        "imagem_url": "https://i.imgur.com/83be9K2.png",
         "nivel": 1,
         "stats": {
             "VIDA_MAXIMA": 30,
@@ -23,7 +23,7 @@ MONSTROS = {
     "lobo_floresta": {
         "nome": "Lobo da Floresta",
         "emoji": "🐺",
-        "imagem_url": "https://i.pinimg.com/736x/47/e7/29/47e7299bf52940434ffa46f2334b4110.jpg",
+        "imagem_url": "https://i.imgur.com/83be9K2.png",
         "nivel": 2,
         "stats": {
             "VIDA_MAXIMA": 50,
@@ -39,7 +39,7 @@ MONSTROS = {
     "slime_verde": {
         "nome": "Slime Verde",
         "emoji": "🟢",
-        "imagem_url": "https://i.pinimg.com/736x/47/e7/29/47e7299bf52940434ffa46f2334b4110.jpg",
+        "imagem_url": "https://i.imgur.com/83be9K2.png",
         "nivel": 1,
         "stats": {
             "VIDA_MAXIMA": 25,
@@ -54,7 +54,7 @@ MONSTROS = {
     "esqueleto_guerreiro": {
         "nome": "Esqueleto Guerreiro",
         "emoji": "💀",
-        "imagem_url": "https://i.pinimg.com/736x/47/e7/29/47e7299bf52940434ffa46f2334b4110.jpg",
+        "imagem_url": "https://i.imgur.com/83be9K2.png",
         "nivel": 3,
         "stats": {
             "VIDA_MAXIMA": 60,
