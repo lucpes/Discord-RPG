@@ -16,6 +16,8 @@ from game.motor_combate import (
 )
 from data.construcoes_library import CONSTRUCOES
 from utils.storage_helper import get_signed_url
+from ui.views import UpgradeView, GovernarPanelView
+from utils.converters import get_player_game_id
 
 
 def criar_barra_status(atual: int, maximo: int, cor_cheia: str, tamanho: int = 10) -> str:
@@ -371,6 +373,77 @@ class MundoCog(commands.Cog):
         if servicos_str: embed.add_field(name="Serviços", value=servicos_str, inline=True)
         
         await interaction.followup.send(embed=embed, ephemeral=True)
+        
+    @app_commands.command(name="governar", description="Abre o painel de governo da cidade.")
+    @app_commands.checks.has_permissions(administrator=True) # A verificação que causa o erro
+    async def governar(self, interaction: discord.Interaction):
+        # ... (toda a lógica do seu comando /governar continua aqui, sem alterações)
+        await interaction.response.defer(ephemeral=True)
+
+        cidade_id = str(interaction.guild.id)
+        cidade_ref = db.collection('cidades').document(cidade_id)
+        cidade_doc = cidade_ref.get()
+
+        user_game_id = get_player_game_id(str(interaction.user.id))
+        if not user_game_id:
+            await interaction.followup.send("❌ Você precisa se registrar com `/registrar` para interagir com uma cidade.", ephemeral=True)
+            return
+
+        if not cidade_doc.exists:
+            # Lógica para fundar a cidade...
+            construcoes_iniciais = {}
+            for building_id in CONSTRUCOES.keys():
+                if building_id in ["CENTRO_VILA", "MINA", "FLORESTA"]:
+                    construcoes_iniciais[building_id] = {"nivel": 1}
+                else:
+                    construcoes_iniciais[building_id] = {"nivel": 0}
+            
+            cidade_data = {
+                "nome": interaction.guild.name, "descricao": "Uma cidade pronta para crescer.",
+                "construcoes": construcoes_iniciais, 
+                "governador_id": user_game_id,
+                "tesouro": {"MOEDAS": 1000}, 
+                "vice_governadores_ids": []
+            }
+            cidade_ref.set(cidade_data)
+            await interaction.followup.send(f"✅ A cidade de **{interaction.guild.name}** foi fundada! Você, {interaction.user.mention}, é o(a) novo(a) Governador(a)!", ephemeral=True)
+        else:
+            # Lógica para verificar permissão e abrir painel...
+            cidade_data = cidade_doc.to_dict()
+            governador_id = cidade_data.get('governador_id')
+            vice_ids = cidade_data.get('vice_governadores_ids', [])
+
+            if user_game_id == governador_id:
+                embed = discord.Embed(title=f"Painel do Governador de {cidade_data['nome']}", description="Selecione uma ação de governo.", color=discord.Color.gold())
+                view = GovernarPanelView(author=interaction.user, bot=self.bot, cidade_data=cidade_data)
+                await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            elif user_game_id in vice_ids:
+                view = UpgradeView(author=interaction.user, cidade_data=cidade_data)
+                embed = view.create_embed()
+                await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Apenas o governador ou um vice-governador pode usar este painel.", ephemeral=True)
+
+    # --- NOVO TRATADOR DE ERROS AQUI ---
+    @governar.error
+    async def governar_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        # Verifica se o erro foi especificamente por falta de permissão
+        if isinstance(error, app_commands.errors.MissingPermissions):
+            # A interação ainda não foi respondida, então usamos response.send_message
+            await interaction.response.send_message(
+                "❌ Você precisa ser um **Administrador** do servidor para usar este comando.", 
+                ephemeral=True
+            )
+        else:
+            # Para outros erros inesperados
+            # Se a interação já foi 'deferida', tentamos 'followup', senão 'response'
+            content = f"Ocorreu um erro inesperado: {error}"
+            if interaction.response.is_done():
+                await interaction.followup.send(content, ephemeral=True)
+            else:
+                await interaction.response.send_message(content, ephemeral=True)
+            # Também é uma boa ideia logar o erro completo no console para você ver
+            print(f"Erro no comando /governar: {error}")
         
 
 async def setup(bot: commands.Bot):

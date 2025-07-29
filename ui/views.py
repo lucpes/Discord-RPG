@@ -1,12 +1,19 @@
  # ui/views.py
 import discord
+from discord.ext import commands
 import math
 from firebase_config import db
+from firebase_admin import firestore
 from data.habilidades_library import HABILIDADES
 from data.classes_data import CLASSES_DATA, ORDERED_CLASSES
 from data.game_constants import EQUIPMENT_SLOTS, RARITY_EMOJIS # Importa os novos dados
 from data.stats_library import format_stat
 from utils.storage_helper import get_signed_url
+from data.construcoes_library import CONSTRUCOES
+from datetime import datetime, timedelta, timezone
+from utils.converters import find_player_by_game_id
+from discord import ui
+
 
 # ---------------------------------------------------------------------------------
 # VIEW DO INVENTÁRIO (Totalmente Redesenhada)
@@ -415,3 +422,229 @@ class ClasseSelectionView(discord.ui.View):
         self.current_class_index = (self.current_class_index + 1) % len(ORDERED_CLASSES)
         await self.update_message(interaction)
         
+# ---------------------------------------------------------------------------------
+# VIEW DE UPGRADE DA CIDADE
+# ---------------------------------------------------------------------------------
+        
+class UpgradeView(discord.ui.View):
+    def __init__(self, author: discord.User, cidade_data: dict):
+        super().__init__(timeout=300)
+        self.author = author
+        self.cidade_data = cidade_data
+        self.selected_building_id = None
+
+        # Cria as opções para o menu dropdown
+        options = []
+        construcoes_atuais = self.cidade_data.get('construcoes', {})
+        for building_id, building_info in CONSTRUCOES.items():
+            nivel_atual = construcoes_atuais.get(building_id, {}).get('nivel', 0)
+            options.append(discord.SelectOption(
+                label=f"{building_info['nome']} (Nível {nivel_atual})",
+                value=building_id,
+                emoji=building_info['emoji']
+            ))
+        
+        self.select_menu = discord.ui.Select(placeholder="Selecione uma construção para ver os detalhes...", options=options)
+        self.select_menu.callback = self.on_select
+        self.add_item(self.select_menu)
+        
+        self.upgrade_button = discord.ui.Button(label="Iniciar Melhoria", style=discord.ButtonStyle.success, disabled=True)
+        self.upgrade_button.callback = self.on_upgrade
+        self.add_item(self.upgrade_button)
+
+    async def on_select(self, interaction: discord.Interaction):
+        """Chamado quando uma construção é selecionada no menu."""
+        self.selected_building_id = self.select_menu.values[0]
+        embed = self.create_embed()
+        self.upgrade_button.disabled = False
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    async def on_upgrade(self, interaction: discord.Interaction):
+        """Chamado quando o botão 'Iniciar Melhoria' é clicado."""
+        await interaction.response.defer(ephemeral=True)
+        
+        if self.cidade_data.get('construcao_em_andamento'):
+            await interaction.followup.send("❌ Já existe uma melhoria em andamento nesta cidade!", ephemeral=True)
+            return
+
+        building_info = CONSTRUCOES[self.selected_building_id]
+        nivel_atual = self.cidade_data['construcoes'][self.selected_building_id]['nivel']
+        
+        if nivel_atual >= len(building_info.get('niveis', [])):
+            await interaction.followup.send("✅ Esta construção já está no nível máximo!", ephemeral=True)
+            return
+
+        upgrade_data = building_info['niveis'][nivel_atual]
+        custo = upgrade_data['custo']
+        
+        if self.selected_building_id != "CENTRO_VILA":
+            nivel_centro_vila = self.cidade_data['construcoes']['CENTRO_VILA']['nivel']
+            if nivel_atual >= nivel_centro_vila:
+                await interaction.followup.send(f"❌ A {building_info['nome']} não pode ter um nível maior que o Centro da Vila (Nível {nivel_centro_vila})!", ephemeral=True)
+                return
+
+        tesouro_cidade = self.cidade_data.get('tesouro', {})
+        for recurso, valor in custo.items():
+            if tesouro_cidade.get(recurso, 0) < valor:
+                await interaction.followup.send(f"❌ A cidade não tem recursos suficientes! Precisa de {valor} {recurso}, mas só tem {tesouro_cidade.get(recurso, 0)}.", ephemeral=True)
+                return
+        
+        for recurso, valor in custo.items():
+            tesouro_cidade[recurso] -= valor
+        
+        tempo_s = upgrade_data['tempo_s']
+        termina_em = datetime.now(timezone.utc) + timedelta(seconds=tempo_s)
+        construcao_em_andamento = {
+            "id_construcao": self.selected_building_id,
+            "nivel_alvo": nivel_atual + 1,
+            "termina_em": termina_em
+        }
+
+        cidade_ref = db.collection('cidades').document(str(interaction.guild_id))
+        cidade_ref.update({
+            'tesouro': tesouro_cidade,
+            'construcao_em_andamento': construcao_em_andamento
+        })
+
+        await interaction.followup.send(f"✅ Melhoria da **{building_info['nome']}** para o **Nível {nivel_atual + 1}** iniciada! Ela estará pronta em <t:{int(termina_em.timestamp())}:R>.", ephemeral=True)
+        self.stop()
+        await interaction.message.delete()
+
+    def create_embed(self) -> discord.Embed:
+        embed = discord.Embed(title="🏗️ Painel de Melhoria da Cidade", description="Selecione uma construção para ver os custos e tempo de melhoria.", color=discord.Color.orange())
+        tesouro = self.cidade_data.get('tesouro', {})
+        tesouro_str = f"🪙 Moedas: {tesouro.get('MOEDAS', 0):,}"
+        embed.add_field(name="Tesouro da Cidade", value=tesouro_str, inline=False)
+        
+        if self.selected_building_id:
+            building_info = CONSTRUCOES[self.selected_building_id]
+            nivel_atual = self.cidade_data['construcoes'][self.selected_building_id]['nivel']
+            info_str = f"Nível Atual: **{nivel_atual}**\n"
+            if nivel_atual < len(building_info.get('niveis', [])):
+                upgrade_data = building_info['niveis'][nivel_atual]
+                custo = upgrade_data['custo']
+                tempo_s = upgrade_data['tempo_s']
+                custo_str = ", ".join([f"{valor:,} {recurso.capitalize()}" for recurso, valor in custo.items()])
+                info_str += f"Próximo Nível: **{nivel_atual + 1}**\n"
+                info_str += f"Custo: **{custo_str}**\n"
+                info_str += f"Tempo de Construção: **{timedelta(seconds=tempo_s)}**"
+            else:
+                info_str += "**NÍVEL MÁXIMO ALCANÇADO**"
+            embed.add_field(name=f"{building_info['emoji']} {building_info['nome']}", value=info_str, inline=False)
+        return embed
+
+# ---------------------------------------------------------------------------------
+# NOVO MODAL PARA ADICIONAR VICE-PREFEITOS
+# ---------------------------------------------------------------------------------
+# --- MODAL ATUALIZADO PARA USAR ID DE JOGO ---
+class AddViceModal(ui.Modal, title="Adicionar Vice-Governador"):
+    game_id_input = ui.TextInput(label="ID de Jogo do Usuário", placeholder="Digite o ID de Jogo (ex: 1001)")
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            game_id = int(self.game_id_input.value)
+        except ValueError:
+            await interaction.followup.send("❌ O ID de Jogo deve ser um número.", ephemeral=True)
+            return
+
+        # Verifica se um jogador com este ID de Jogo existe
+        user, _ = await find_player_by_game_id(interaction, game_id)
+        if not user:
+            await interaction.followup.send(f"❌ Nenhum jogador encontrado com o ID de Jogo `{game_id}`.", ephemeral=True)
+            return
+
+        cidade_ref = db.collection('cidades').document(str(interaction.guild_id))
+        # Salva o ID de Jogo (int) no array
+        cidade_ref.update({'vice_governadores_ids': firestore.ArrayUnion([game_id])})
+        
+        await interaction.followup.send(f"✅ {user.mention} foi promovido a Vice-Governador!", ephemeral=True)
+
+# ---------------------------------------------------------------------------------
+# NOVA VIEW PARA GERENCIAR VICE-PREFEITOS
+# ---------------------------------------------------------------------------------
+class GerenciarVicesView(ui.View):
+    def __init__(self, author: discord.User, bot: commands.Bot, cidade_data: dict):
+        super().__init__(timeout=300)
+        self.author = author
+        self.bot = bot
+        self.cidade_data = cidade_data
+
+        self.vice_game_ids = self.cidade_data.get('vice_governadores_ids', [])
+        
+        add_button = ui.Button(label="Adicionar Vice", style=discord.ButtonStyle.success, emoji="➕")
+        add_button.callback = self.add_vice
+        self.add_item(add_button)
+        
+        if self.vice_game_ids:
+            # O label do dropdown agora mostrará o ID de Jogo
+            options = [discord.SelectOption(label=f"ID de Jogo: {gid}", value=str(gid)) for gid in self.vice_game_ids]
+            remove_select = ui.Select(placeholder="Selecione um vice para remover...", options=options)
+            remove_select.callback = self.remove_vice
+            self.add_item(remove_select)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.author.id:
+            await interaction.response.send_message("Apenas o prefeito pode gerenciar os vices.", ephemeral=True)
+            return False
+        return True
+
+    async def add_vice(self, interaction: discord.Interaction):
+        await interaction.response.send_modal(AddViceModal())
+
+    async def remove_vice(self, interaction: discord.Interaction):
+        game_id_to_remove = int(interaction.data['values'][0])
+        cidade_ref = db.collection('cidades').document(str(interaction.guild_id))
+        # Remove o ID de Jogo (int) do array
+        cidade_ref.update({'vice_governadores_ids': firestore.ArrayRemove([game_id_to_remove])})
+        
+        user_removed, _ = await find_player_by_game_id(interaction, game_id_to_remove)
+        nome = user_removed.mention if user_removed else f"O jogador com ID `{game_id_to_remove}`"
+        
+        await interaction.response.send_message(f"✅ {nome} não é mais um Vice-Governador.", ephemeral=True)
+        self.stop()
+        await interaction.message.delete()
+
+
+# ---------------------------------------------------------------------------------
+# NOVO PAINEL PRINCIPAL DO GOVERNADOR
+# ---------------------------------------------------------------------------------
+class GovernarPanelView(ui.View):
+    def __init__(self, author: discord.User, bot: commands.Bot, cidade_data: dict):
+        super().__init__(timeout=300)
+        self.author = author
+        self.bot = bot
+        self.cidade_data = cidade_data
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.author.id:
+            await interaction.response.send_message("Apenas o prefeito pode usar este painel.", ephemeral=True)
+            return False
+        return True
+
+    @ui.button(label="Melhorar Construções", style=discord.ButtonStyle.primary, emoji="🏗️")
+    async def open_upgrades(self, interaction: discord.Interaction, button: ui.Button):
+        view = UpgradeView(author=self.author, cidade_data=self.cidade_data)
+        embed = view.create_embed()
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+    @ui.button(label="Gerenciar Vice-Governadores", style=discord.ButtonStyle.secondary, emoji="👥")
+    async def manage_vices(self, interaction: discord.Interaction, button: ui.Button):
+        cidade_ref = db.collection('cidades').document(str(interaction.guild_id))
+        cidade_data = cidade_ref.get().to_dict()
+        view = GerenciarVicesView(author=self.author, bot=self.bot, cidade_data=cidade_data)
+        
+        vice_ids = cidade_data.get('vice_governadores_ids', [])
+        vice_users_str = ""
+        if vice_ids:
+            # Busca os nicks dos vices pelo ID de Jogo para uma exibição amigável
+            query = db.collection('players').where('game_id', 'in', vice_ids).stream()
+            vices_data = {p.to_dict()['game_id']: p.to_dict()['nick'] for p in query}
+            for gid in vice_ids:
+                nick = vices_data.get(gid, '*desconhecido*')
+                vice_users_str += f"- **{nick}** (ID: `{gid}`)\n"
+        else:
+            vice_users_str = "Nenhum vice-governador nomeado."
+
+        embed = discord.Embed(title="👥 Gerenciamento de Vice-Governadores", description=vice_users_str, color=discord.Color.blurple())
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
