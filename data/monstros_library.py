@@ -13,6 +13,7 @@ MONSTROS = {
             "ARMADURA": 2
         },
         "xp_recompensa": 15,
+            "moedas_recompensa": {"min": 5, "max": 20}, # Sorteia um valor entre 5 e 20 moedas
         "loot_table": [
             # Um item pode ter uma chance de dropar
             {"item_template_id": "adaga_enferrujada", "chance": 0.5}, # 50% de chance

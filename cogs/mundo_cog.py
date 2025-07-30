@@ -297,7 +297,7 @@ class MundoCog(commands.Cog):
         
         await interaction.followup.send(embed=embed, ephemeral=True)
         
-    # --- NOVO COMANDO /CIDADE ---
+    # --- COMANDO /CIDADE COM CATEGORIAS LADO A LADO ---
     @app_commands.command(name="cidade", description="Mostra as informações da cidade atual.")
     async def cidade(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -309,88 +309,119 @@ class MundoCog(commands.Cog):
         if not cidade_doc.exists:
             await interaction.followup.send(
                 "Este lugar parece selvagem e não civilizado...\n"
-                "*Um administrador do servidor precisa usar o comando `!configurar_cidade` para fundar a cidade.*",
+                "*Um administrador do servidor precisa usar o comando `/governar` para fundar a cidade.*",
                 ephemeral=True
             )
             return
 
         cidade_data = cidade_doc.to_dict()
         
-        # --- NOVO EMBED COM DESTAQUE PARA O CENTRO DA VILA ---
         embed = discord.Embed(
             title=f"📍 {cidade_data.get('nome', 'Cidade Desconhecida')}",
             description=f"*{cidade_data.get('descricao', 'Um lugar com muito a se explorar.')}*",
             color=discord.Color.from_rgb(128, 174, 184)
         )
 
-        prefeito_nome = "Ninguém"
-        if prefeito_id := cidade_data.get('prefeito_id'):
-            try:
-                prefeito_user = await self.bot.fetch_user(int(prefeito_id))
-                prefeito_nome = prefeito_user.display_name
-            except discord.NotFound:
-                prefeito_nome = "Um líder esquecido"
+        # --- SEÇÃO DE GOVERNANÇA ---
+        governador_nome = "Ninguém"
+        if governador_id := cidade_data.get('governador_id'):
+            player_query = db.collection('players').where('game_id', '==', governador_id).limit(1).stream()
+            for player_doc in player_query:
+                governador_nome = player_doc.to_dict().get('nick', 'Líder Desconhecido')
         
-        embed.add_field(name="👑 Prefeito(a)", value=prefeito_nome, inline=False)
+        vices_str = "Nenhum"
+        if vice_ids := cidade_data.get('vice_governadores_ids', []):
+            vices_query = db.collection('players').where('game_id', 'in', vice_ids).stream()
+            vices_data = {p.to_dict()['game_id']: p.to_dict()['nick'] for p in vices_query}
+            vices_nicks = [f"**{vices_data.get(gid, '*desconhecido*')}**" for gid in vice_ids]
+            if vices_nicks:
+                vices_str = ", ".join(vices_nicks)
+
+        governanca_str = f"👑 **Governador(a):** {governador_nome}\n👥 **Vices:** {vices_str}"
+        embed.add_field(name="------", value=governanca_str, inline=False)
         
-        # --- SEÇÃO DE DESTAQUE PARA O CENTRO DA VILA ---
+        construcao_andamento = cidade_data.get('construcao_em_andamento')
+                
+        # --- DESTAQUE PARA O CENTRO DA VILA ---
         construcoes_data = cidade_data.get('construcoes', {})
-        centro_vila_data = construcoes_data.get("CENTRO_VILA")
-        if centro_vila_data:
+        cv_data = construcoes_data.get("CENTRO_VILA")
+        if cv_data:
             cv_info = CONSTRUCOES["CENTRO_VILA"]
-            cv_nivel = centro_vila_data.get("nivel", 0)
+            cv_nivel = cv_data.get("nivel", 0)
+            status_str = f"Nível {cv_nivel}"
+            if construcao_andamento and construcao_andamento['id_construcao'] == 'CENTRO_VILA':
+                status_str = "*(Melhorando...)*"
+            
             cv_str = (
-                f"{cv_info['emoji']} **{cv_info['nome']} - Nível {cv_nivel}**\n"
+                f"{cv_info['emoji']} **{cv_info['nome']} - {status_str}**\n"
                 f"*{cv_info['descricao']}*"
             )
-            embed.add_field(name="--- 🏛️ Construção Principal 🏛️ ---", value=cv_str, inline=False)
+            embed.add_field(name="------", value=cv_str, inline=False)
 
-        # --- SEÇÃO DAS OUTRAS CONSTRUÇÕES ---
-        recursos_str = ""
-        criacao_str = ""
-        servicos_str = ""
+        # --- SEÇÕES DE CONSTRUÇÕES POR CATEGORIA ---
+        recursos_str, criacao_str, servicos_str = "", "", ""
+        recursos_ids = ["MINA", "FLORESTA"]
+        criacao_ids = ["FORJA", "MESA_TRABALHO", "MESA_POCOES"]
 
         for building_id, building_info in CONSTRUCOES.items():
-            if building_id == "CENTRO_VILA": continue # Pula o centro da vila para não repetir
+            if building_id == "CENTRO_VILA": continue
 
             if building_id in construcoes_data:
                 nivel = construcoes_data[building_id].get('nivel', 0)
-                emoji = building_info.get('emoji', '')
-                nome = building_info.get('nome', building_id)
+                status_str = f"Nível {nivel}" if nivel > 0 else "*(Não Construído)*"
+                if construcao_andamento and construcao_andamento['id_construcao'] == building_id:
+                    status_str = "*(Melhorando...)*"
                 
-                nivel_str = f"Nível {nivel}" if nivel > 0 else "*(Não Construído)*"
-                linha = f"{emoji} **{nome}** - {nivel_str}\n"
+                linha = f"{building_info['emoji']} **{building_info['nome']}** - {status_str}\n"
 
-                if building_id in ["MINA", "FLORESTA"]:
+                if building_id in recursos_ids:
                     recursos_str += linha
-                elif building_id in ["FORJA", "MESA_TRABALHO", "MESA_POCOES"]:
+                elif building_id in criacao_ids:
                     criacao_str += linha
-                else:
+                else: 
                     servicos_str += linha
         
-        if recursos_str: embed.add_field(name="Recursos", value=recursos_str, inline=True)
-        if criacao_str: embed.add_field(name="Criação", value=criacao_str, inline=True)
-        if servicos_str: embed.add_field(name="Serviços", value=servicos_str, inline=True)
+        # --- ALTERAÇÃO APLICADA AQUI ---
+        # Alterado para inline=True para colocar os campos lado a lado.
+        if recursos_str: embed.add_field(name="--- ⛏️ Recursos ---", value=recursos_str.strip(), inline=True)
+        if criacao_str: embed.add_field(name="--- 🛠️ Criação ---", value=criacao_str.strip(), inline=True)
+        if servicos_str: embed.add_field(name="--- ⚖️ Serviços ---", value=servicos_str.strip(), inline=True)
+
+        # --- SEÇÃO DE MELHORIA NO FINAL ---
+        if construcao_andamento:
+            building_id = construcao_andamento['id_construcao']
+            building_info = CONSTRUCOES.get(building_id)
+            if building_info:
+                nivel_alvo = construcao_andamento['nivel_alvo']
+                termina_em = construcao_andamento['termina_em']
+                timestamp = int(termina_em.timestamp())
+                melhoria_str = (
+                    f"{building_info['emoji']} **{building_info['nome']}** para o **Nível {nivel_alvo}**\n"
+                    f"**Conclusão:** <t:{timestamp}:R>"
+                )
+                embed.add_field(name="--- 🏗️ MELHORIA EM ANDAMENTO 🏗️ ---", value=melhoria_str, inline=False)
         
         await interaction.followup.send(embed=embed, ephemeral=True)
         
-    @app_commands.command(name="governar", description="Abre o painel de governo da cidade.")
-    @app_commands.checks.has_permissions(administrator=True) # A verificação que causa o erro
+        
+    @app_commands.command(name="governar", description="Funde a cidade ou abre o painel de governo.")
     async def governar(self, interaction: discord.Interaction):
-        # ... (toda a lógica do seu comando /governar continua aqui, sem alterações)
         await interaction.response.defer(ephemeral=True)
 
         cidade_id = str(interaction.guild.id)
         cidade_ref = db.collection('cidades').document(cidade_id)
         cidade_doc = cidade_ref.get()
 
-        user_game_id = get_player_game_id(str(interaction.user.id))
-        if not user_game_id:
-            await interaction.followup.send("❌ Você precisa se registrar com `/registrar` para interagir com uma cidade.", ephemeral=True)
-            return
-
         if not cidade_doc.exists:
-            # Lógica para fundar a cidade...
+            if not interaction.user.guild_permissions.administrator:
+                await interaction.followup.send("❌ Apenas um Administrador do servidor pode fundar uma nova cidade.", ephemeral=True)
+                return
+            
+            user_game_id = get_player_game_id(str(interaction.user.id))
+            if not user_game_id:
+                await interaction.followup.send("❌ Você precisa se registrar com `/registrar` primeiro para fundar uma cidade.", ephemeral=True)
+                return
+
             construcoes_iniciais = {}
             for building_id in CONSTRUCOES.keys():
                 if building_id in ["CENTRO_VILA", "MINA", "FLORESTA"]:
@@ -400,30 +431,53 @@ class MundoCog(commands.Cog):
             
             cidade_data = {
                 "nome": interaction.guild.name, "descricao": "Uma cidade pronta para crescer.",
-                "construcoes": construcoes_iniciais, 
-                "governador_id": user_game_id,
-                "tesouro": {"MOEDAS": 1000}, 
-                "vice_governadores_ids": []
+                "construcoes": construcoes_iniciais, "governador_id": user_game_id,
+                "tesouro": {"MOEDAS": 1000}, "vice_governadores_ids": []
             }
             cidade_ref.set(cidade_data)
-            await interaction.followup.send(f"✅ A cidade de **{interaction.guild.name}** foi fundada! Você, {interaction.user.mention}, é o(a) novo(a) Governador(a)!", ephemeral=True)
+            await interaction.followup.send(f"✅ A cidade de **{interaction.guild.name}** foi fundada! Você é o(a) novo(a) Governador(a)!", ephemeral=True)
         else:
-            # Lógica para verificar permissão e abrir painel...
+            user_game_id = get_player_game_id(str(interaction.user.id))
+            if not user_game_id:
+                await interaction.followup.send("❌ Você precisa estar registrado no jogo para governar.", ephemeral=True)
+                return
+
             cidade_data = cidade_doc.to_dict()
             governador_id = cidade_data.get('governador_id')
             vice_ids = cidade_data.get('vice_governadores_ids', [])
+            is_governor = user_game_id == governador_id
+            is_vice = user_game_id in vice_ids
 
-            if user_game_id == governador_id:
-                embed = discord.Embed(title=f"Painel do Governador de {cidade_data['nome']}", description="Selecione uma ação de governo.", color=discord.Color.gold())
-                view = GovernarPanelView(author=interaction.user, bot=self.bot, cidade_data=cidade_data)
-                await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-            elif user_game_id in vice_ids:
-                view = UpgradeView(author=interaction.user, cidade_data=cidade_data)
-                embed = view.create_embed()
+            if is_governor or is_vice:
+                # --- CORREÇÃO APLICADA AQUI ---
+                # O embed agora é criado com a lista de construções.
+                embed = discord.Embed(
+                    title=f"Painel de Governo de {cidade_data['nome']}", 
+                    description="Visão geral da cidade e ações de governo.", 
+                    color=discord.Color.gold()
+                )
+                
+                # Lógica para mostrar as construções (igual ao /cidade)
+                construcoes_str = ""
+                construcoes_data = cidade_data.get('construcoes', {})
+                for building_id, building_info in CONSTRUCOES.items():
+                    if building_id in construcoes_data:
+                        nivel = construcoes_data[building_id].get('nivel', 0)
+                        emoji = building_info.get('emoji', '')
+                        nome = building_info.get('nome', building_id)
+                        nivel_str = f"Nível {nivel}" if nivel > 0 else "*(Não Construído)*"
+                        construcoes_str += f"{emoji} **{nome}** - {nivel_str}\n"
+                
+                if not construcoes_str:
+                    construcoes_str = "Nenhuma construção registrada."
+
+                embed.add_field(name="Status das Construções", value=construcoes_str, inline=False)
+                
+                view = GovernarPanelView(author=interaction.user, bot=self.bot, cidade_data=cidade_data, is_governor=is_governor)
                 await interaction.followup.send(embed=embed, view=view, ephemeral=True)
             else:
                 await interaction.followup.send("❌ Apenas o governador ou um vice-governador pode usar este painel.", ephemeral=True)
-
+                
     # --- NOVO TRATADOR DE ERROS AQUI ---
     @governar.error
     async def governar_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
