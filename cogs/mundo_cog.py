@@ -4,7 +4,7 @@ import random
 import asyncio
 from discord import app_commands
 from discord.ext import commands
-
+from firebase_admin import firestore
 from firebase_config import db
 from data.monstros_library import MONSTROS
 from data.habilidades_library import HABILIDADES
@@ -18,6 +18,7 @@ from data.construcoes_library import CONSTRUCOES
 from utils.storage_helper import get_signed_url
 from ui.views import UpgradeView, GovernarPanelView
 from utils.converters import get_player_game_id
+from cogs.item_cog import get_and_increment_item_id
 
 
 def criar_barra_status(atual: int, maximo: int, cor_cheia: str, tamanho: int = 10) -> str:
@@ -168,29 +169,134 @@ class BattleView(discord.ui.View):
         embed.add_field(name="Log de Batalha", value=f">>> {self.log_batalha}", inline=False)
         return embed
     
-    async def on_stop(self):
-        if self.timer_task:
-            self.timer_task.cancel()
-
     async def vitoria(self):
         self.stop()
-        for child in self.children: child.disabled = True
+        for child in self.children:
+            child.disabled = True
+
+        recompensas_log = []
+        user_id_str = str(self.author.id)
+        char_ref = db.collection('characters').document(user_id_str)
+
+        # --- 1. Processamento de XP ---
         xp_ganho = self.monstro.get('xp_recompensa', 0)
         if xp_ganho > 0:
+            # Importa a função de XP aqui para evitar problemas de dependência
             from game.leveling_system import grant_xp
-            grant_xp(user_id=str(self.author.id), amount=xp_ganho)
-        embed = self.create_battle_embed(turno_de='jogador')
-        embed.title = "🎉 VITÓRIA! 🎉"; embed.color = discord.Color.gold()
-        self.log_batalha += f"\nVocê derrotou o {self.monstro['nome']} e ganhou `{xp_ganho}` de XP!"
-        embed.set_field_at(2, name="Log de Batalha", value=f">>> {self.log_batalha}", inline=False)
-        await self.message.edit(embed=embed, view=self)
+            grant_xp(user_id=user_id_str, amount=xp_ganho)
+            recompensas_log.append(f"🌟 {xp_ganho} Pontos de Experiência")
+
+        # --- 2. Processamento de Moedas ---
+        moedas_info = self.monstro.get('moedas_recompensa', {})
+        if moedas_info:
+            moedas_ganhas = random.randint(moedas_info.get('min', 0), moedas_info.get('max', 0))
+            if moedas_ganhas > 0:
+                char_ref.update({"moedas": firestore.Increment(moedas_ganhas)})
+                recompensas_log.append(f"🪙 {moedas_ganhas} Moedas")
+
+        # --- 3. Processamento de Loot (Itens) ---
+        loot_table = self.monstro.get('loot_table', [])
+        itens_dropados_nomes = []
+        if loot_table:
+            for item_drop in loot_table:
+                # Rola o dado para ver se o item dropa
+                if random.random() < item_drop.get('chance', 0):
+                    # Usando a chave correta "item_template_id" do seu arquivo de monstros
+                    template_id = item_drop.get('item_template_id')
+                    if not template_id:
+                        continue
+
+                    template_ref = db.collection('item_templates').document(template_id)
+                    template_doc = template_ref.get()
+                    if not template_doc.exists:
+                        print(f"AVISO DE SISTEMA: Template de loot '{template_id}' não foi encontrado no banco de dados.")
+                        continue
+                    
+                    template_data = template_doc.to_dict()
+                    stats_gerados = {s: random.randint(v['min'], v['max']) for s, v in template_data.get('stats_base', {}).items()}
+                    
+                    transaction = db.transaction()
+                    item_id = get_and_increment_item_id(transaction)
+                    
+                    item_ref = db.collection('items').document(str(item_id))
+                    item_data = {
+                        "template_id": template_id, 
+                        "owner_id": user_id_str, 
+                        "stats_gerados": stats_gerados, 
+                        "encantamentos_aplicados": []
+                    }
+                    item_ref.set(item_data)
+                    
+                    inventory_ref = char_ref.collection('inventario').document(str(item_id))
+                    inventory_ref.set({'equipado': False})
+                    
+                    itens_dropados_nomes.append(template_data['nome'])
+
+        if itens_dropados_nomes:
+            for nome_item in itens_dropados_nomes:
+                 recompensas_log.append(f"🎁 {nome_item}")
+
+        # --- 4. Criação do Embed de Vitória Limpo ---
+        embed = discord.Embed(
+            title="🎉 VITÓRIA! 🎉",
+            description=f"Você derrotou o **{self.monstro['nome']}** e saiu vitorioso do combate!",
+            color=discord.Color.gold()
+        )
+        
+        # Adiciona a imagem do jogador como miniatura
+        if self.jogador.get('imagem_url'):
+            embed.set_thumbnail(url=self.jogador['imagem_url'])
+
+        if recompensas_log:
+            # Usando quebras de linha \n para separar os itens da recompensa
+            recompensas_texto = "\n".join(recompensas_log)
+            embed.add_field(
+                name="Recompensas Coletadas",
+                value=f"```\n{recompensas_texto}\n```",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="Recompensas",
+                value="Você não coletou nenhuma recompensa específica desta batalha.",
+                inline=False
+            )
+
+        embed.set_footer(text="A aventura continua...")
+        
+        # Edita a mensagem original com o novo embed limpo e sem botões
+        await self.message.edit(embed=embed, view=None)
     
     async def derrota(self):
-        self.stop()
-        for child in self.children: child.disabled = True
-        embed = self.create_battle_embed(turno_de='monstro')
-        embed.title = "☠️ VOCÊ FOI DERROTADO ☠️"; embed.color = discord.Color.darker_grey()
-        await self.message.edit(embed=embed, view=self)
+        self.stop() # Para a View e desativa o timeout
+        
+        # --- 1. Criação do Novo Embed de Derrota ---
+        embed = discord.Embed(
+            title="☠️ VOCÊ FOI DERROTADO ☠️",
+            description=f"Você não resistiu ao poder de **{self.monstro['nome']}** e sucumbiu em batalha.",
+            color=discord.Color.dark_red()
+        )
+        
+        # Adiciona a imagem do monstro que venceu, para dar mais impacto
+        if self.monstro.get('imagem_url'):
+            embed.set_image(url=self.monstro['imagem_url'])
+        
+        # --- 2. Adiciona um campo para as Consequências ---
+        # Por enquanto, é um texto temático. No futuro, podemos adicionar penalidades aqui.
+        consequencias_texto = (
+            "Você acorda um tempo depois, sentindo-se enfraquecido, mas vivo.\n"
+            "Felizmente, você não perdeu nenhum item ou experiência desta vez."
+        )
+        embed.add_field(
+            name="Consequências da Derrota",
+            value=consequencias_texto,
+            inline=False
+        )
+
+        embed.set_footer(text="Mais sorte na próxima vez, aventureiro.")
+        
+        # --- 3. Edita a mensagem original com o novo embed, removendo os botões ---
+        await self.message.edit(embed=embed, view=None)
         
     async def on_backpack_use(self, interaction: discord.Interaction):
         await interaction.response.send_message("O uso de itens em batalha será implementado em breve!", ephemeral=True)
@@ -242,17 +348,20 @@ class MundoCog(commands.Cog):
             "efeitos_ativos": [] # NOVO: Inicializa a lista de efeitos
         }
         monster_id = random.choice(list(MONSTROS.keys()))
-        monstro_template = MONSTROS.get(monster_id)
-        if not monstro_template:
-            await interaction.followup.send(f"Erro ao encontrar dados do monstro: {monster_id}")
-            return
-        monstro_para_batalha = {
-            "id": monster_id, "nome": monstro_template['nome'], "emoji": monstro_template['emoji'],
-            "stats": monstro_template['stats'], "vida_atual": monstro_template['stats']['VIDA_MAXIMA'],
-            "xp_recompensa": monstro_template.get('xp_recompensa', 0),
-            "imagem_url": monstro_template.get('imagem_url'),
-            "efeitos_ativos": [] # NOVO: Inicializa a lista de efeitos
-        }
+        monstro_template = MONSTROS[monster_id]
+        
+        # --- BLOCO CORRIGIDO ABAIXO ---
+
+        # 1. Faz uma cópia COMPLETA do template do monstro.
+        #    Isso garante que loot_table, moedas_recompensa, e tudo mais seja incluído.
+        monstro_para_batalha = monstro_template.copy()
+        
+        # 2. Adiciona os dados específicos da instância da batalha.
+        monstro_para_batalha['id'] = monster_id
+        monstro_para_batalha['vida_atual'] = monstro_template['stats']['VIDA_MAXIMA']
+        monstro_para_batalha['efeitos_ativos'] = []
+        
+        
         view = BattleView(author=interaction.user, bot=self.bot, jogador_data=jogador_para_batalha, monstro_data=monstro_para_batalha)
         embed = view.create_battle_embed(turno_de='jogador')
         message = await interaction.followup.send(embed=embed, view=view)

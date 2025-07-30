@@ -216,7 +216,7 @@ class HabilidadesView(ui.View):
             embeds.append(details_embed)
         return embeds
 
-    async def select_callback(self, interaction: discord.Interaction, select: ui.Select):
+    async def select_callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.user.id: return
         slot_index = int(interaction.data['custom_id'].split('_')[-1])
         selected_skill_id = interaction.data['values'][0]
@@ -225,7 +225,7 @@ class HabilidadesView(ui.View):
         embeds = self.create_embeds(focused_skill_id=selected_skill_id)
         await interaction.response.edit_message(embeds=embeds, view=self)
 
-    async def save_changes(self, interaction: discord.Interaction, button: ui.Button):
+    async def save_changes(self, interaction: discord.Interaction):
         if interaction.user.id != self.user.id: return
         newly_equipped = [skill_id for skill_id in self.selected_skills if skill_id is not None]
         if len(newly_equipped) != len(set(newly_equipped)):
@@ -260,7 +260,7 @@ class ClasseSelectionView(ui.View):
         embed.set_footer(text=f"Classe {self.current_class_index + 1}/{len(ORDERED_CLASSES)}")
         return embed
 
-    async def select_button(self, interaction: discord.Interaction, button: ui.Button):
+    async def select_button(self, interaction: discord.Interaction):
         if interaction.user.id != self.user.id: return
         for item in self.children: item.disabled = True
         class_name = ORDERED_CLASSES[self.current_class_index]
@@ -279,7 +279,7 @@ class ClasseSelectionView(ui.View):
         await interaction.response.edit_message(embed=final_embed, view=self)
         self.stop()
 
-    async def update_message(self, interaction: discord.Interaction, button: ui.Button):
+    async def update_message(self, interaction: discord.Interaction):
         embed = self.create_embed()
         await interaction.response.edit_message(embed=embed, view=self)
 
