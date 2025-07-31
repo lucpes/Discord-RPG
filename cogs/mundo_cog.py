@@ -20,6 +20,7 @@ from ui.views import UpgradeView, GovernarPanelView
 from utils.converters import get_player_game_id
 from cogs.item_cog import get_and_increment_item_id
 from game.motor_combate import processar_acao_em_grupo, processar_turno_monstro_em_grupo
+from game.leveling_system import grant_xp
 
 
 def criar_barra_status(atual: int, maximo: int, cor_cheia: str, tamanho: int = 10) -> str:
@@ -302,7 +303,7 @@ class BattleView(discord.ui.View):
     async def on_backpack_use(self, interaction: discord.Interaction):
         await interaction.response.send_message("O uso de itens em batalha será implementado em breve!", ephemeral=True)
         
-# --- CLASSE CoopBattleView COM O FLUXO DE TURNO CORRIGIDO ---
+# --- CLASSE CoopBattleView COM A TELA DE VITÓRIA FUNCIONAL ---
 class CoopBattleView(discord.ui.View):
     def __init__(self, bot: commands.Bot, jogadores_data: list, monstros_data: list, tier: int):
         super().__init__(timeout=300)
@@ -311,11 +312,13 @@ class CoopBattleView(discord.ui.View):
         self.monstros = monstros_data
         self.tier = tier
         
-        # A ordem de turno agora começa vazia e será construída dinamicamente
+        # --- ADIÇÃO IMPORTANTE ---
+        # Guarda uma cópia da lista original de monstros para calcular as recompensas no final
+        self.monstros_originais = monstros_data.copy()
+        
         self.ordem_de_turno = []
         self.combatente_atual_index = -1 
         self.combatente_atual = None
-
         self.estado = "INICIANDO"
         self.habilidade_selecionada = None
         self.log_batalha = f"Uma batalha de Tier {tier} começou!"
@@ -384,7 +387,7 @@ class CoopBattleView(discord.ui.View):
             target_type = skill_info.get("alvo", "inimigo")
             alvos_disponiveis = [m for m in self.monstros if m['vida_atual'] > 0] if target_type == "inimigo" else [p for p in self.jogadores if p['vida_atual'] > 0]
             
-            # --- PONTO PRINCIPAL DA CORREÇÃO ---
+            # --- A CORREÇÃO ESTÁ AQUI ---
             # O custom_id agora usa 'i' de enumerate, que é sempre único (0, 1, 2...).
             for i, alvo in enumerate(alvos_disponiveis):
                 button = discord.ui.Button(label=alvo.get('nick', alvo.get('nome')), custom_id=f"target_{i}")
@@ -581,11 +584,82 @@ class CoopBattleView(discord.ui.View):
         embed.set_footer(text=f"Turno de: {self.combatente_atual.get('nick', self.combatente_atual.get('nome'))}")
         return embed
     
+    # --- MÉTODO DE VITÓRIA TOTALMENTE IMPLEMENTADO ---
     async def vitoria(self):
-        # (Placeholder)
         self.stop()
-        embed = self.create_battle_embed()
-        embed.title = "🎉 VITÓRIA! 🎉"
+        jogadores_vivos = self.jogadores # A lista já contém apenas os sobreviventes
+
+        if not jogadores_vivos:
+            embed = discord.Embed(title="Batalha Concluída", description="Todos os combatentes pereceram, não há vencedores.", color=discord.Color.dark_grey())
+            return await self.message.edit(embed=embed, view=None)
+
+        # 1. CALCULAR RECOMPENSAS COMPARTILHADAS (XP & MOEDAS)
+        total_xp = 0
+        total_moedas = 0
+        for monstro in self.monstros_originais:
+            total_xp += monstro.get('xp_recompensa', 0)
+            moedas_info = monstro.get('moedas_recompensa', {})
+            if moedas_info:
+                total_moedas += random.randint(moedas_info.get('min', 0), moedas_info.get('max', 0))
+
+        xp_por_jogador = total_xp // len(jogadores_vivos)
+        moedas_por_jogador = total_moedas // len(jogadores_vivos)
+
+        # 2. CALCULAR ITENS (LOOT POOL)
+        loot_pool = []
+        for monstro in self.monstros_originais:
+            for item_drop_info in monstro.get('loot_table', []):
+                if random.random() < item_drop_info.get('chance', 0):
+                    loot_pool.append(item_drop_info['item_template_id'])
+
+        # 3. DISTRIBUIR ITENS E APLICAR RECOMPENSAS
+        recompensas_individuais = {p['id']: [] for p in jogadores_vivos}
+        if loot_pool:
+            for item_template_id in loot_pool:
+                jogador_sorteado = random.choice(jogadores_vivos)
+                user_id_str = str(jogador_sorteado['id'])
+                
+                template_doc = db.collection('item_templates').document(item_template_id).get()
+                if not template_doc.exists: continue
+                template_data = template_doc.to_dict()
+                
+                # Cria a instância do item
+                transaction = db.transaction()
+                item_id = get_and_increment_item_id(transaction)
+                stats_gerados = {s: random.randint(v['min'], v['max']) for s, v in template_data.get('stats_base', {}).items()}
+                item_data = {"template_id": item_template_id, "owner_id": user_id_str, "stats_gerados": stats_gerados, "encantamentos_aplicados": []}
+                db.collection('items').document(str(item_id)).set(item_data)
+                
+                # Adiciona ao inventário do jogador sorteado
+                db.collection('characters').document(user_id_str).collection('inventario').document(str(item_id)).set({'equipado': False})
+                recompensas_individuais[jogador_sorteado['id']].append(template_data['nome'])
+
+        # 4. MONTAR O EMBED FINAL
+        embed = discord.Embed(title="🎉 VITÓRIA! 🎉", description=f"O grupo conquistou os desafios da Fenda Abissal de **Tier {self.tier}**!", color=discord.Color.gold())
+
+        shared_rewards_str = ""
+        if xp_por_jogador > 0: shared_rewards_str += f"🌟 `{xp_por_jogador}` Pontos de Experiência\n"
+        if moedas_por_jogador > 0: shared_rewards_str += f"🪙 `{moedas_por_jogador}` Moedas"
+        embed.add_field(name="Recompensas para Cada Aventureiro", value=shared_rewards_str or "Nenhuma recompensa compartilhada.", inline=False)
+        
+        individual_rewards_str = ""
+        for jogador in jogadores_vivos:
+            user_id_str = str(jogador['id'])
+            # Aplica XP e Moedas no banco de dados
+            grant_xp(user_id=user_id_str, amount=xp_por_jogador)
+            db.collection('characters').document(user_id_str).update({"moedas": firestore.Increment(moedas_por_jogador)})
+            
+            # Monta a string para o embed
+            itens_recebidos = recompensas_individuais.get(jogador['id'], [])
+            individual_rewards_str += f"**{jogador['nick']}** recebeu:\n"
+            if itens_recebidos:
+                individual_rewards_str += "\n".join([f" > 🎁 `{nome}`" for nome in itens_recebidos]) + "\n\n"
+            else:
+                individual_rewards_str += " > *Nenhum item*\n\n"
+        
+        if loot_pool:
+            embed.add_field(name="Tesouros Distribuídos", value=individual_rewards_str.strip(), inline=False)
+            
         await self.message.edit(embed=embed, view=None)
 
     async def derrota(self):

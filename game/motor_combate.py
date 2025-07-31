@@ -72,15 +72,23 @@ def processar_acao_em_grupo(conjurador: Dict, alvos: List[Dict], habilidade_id: 
     for alvo in alvos:
         nome_alvo = alvo.get('nick', alvo.get('nome'))
         
-        # --- CORREÇÃO NO CÁLCULO DE DANO ---
+        # --- LÓGICA DE DANO ATUALIZADA ---
+        # Dano Físico
         dano_fisico = efeitos_no_alvo.get('DANO', 0)
         if dano_fisico > 0:
-            # Para habilidades, o dano é o base do jogador + o bônus da skill.
-            # Para o ataque básico, o bônus da skill JÁ É o dano base do jogador.
             dano_base = conjurador['stats'].get('DANO', 0) + dano_fisico if habilidade_id != "basic_attack" else dano_fisico
             dano_final = calcular_dano(dano_base, alvo['stats'].get('ARMADURA', 0))
             alvo['vida_atual'] -= dano_final
             log_acao.append(f"  -> **{nome_alvo}** sofreu `{dano_final}` de dano físico!")
+            
+        # Dano Mágico (NOVO)
+        dano_magico = efeitos_no_alvo.get('DANO_MAGICO', 0)
+        if dano_magico > 0:
+            # Dano mágico pode ter sua própria resistência no futuro, por enquanto usa armadura
+            dano_base = conjurador['stats'].get('DANO_MAGICO', 0) + dano_magico
+            dano_final = calcular_dano(dano_base, alvo['stats'].get('ARMADURA_MAGICA', alvo['stats'].get('ARMADURA', 0)))
+            alvo['vida_atual'] -= dano_final
+            log_acao.append(f"  -> **{nome_alvo}** sofreu `{dano_final}` de dano mágico!")
 
         # Cura
         cura = efeitos_no_alvo.get('CURA', 0)
@@ -90,13 +98,18 @@ def processar_acao_em_grupo(conjurador: Dict, alvos: List[Dict], habilidade_id: 
             alvo['vida_atual'] = min(vida_max, vida_anterior + cura)
             log_acao.append(f"  -> **{nome_alvo}** recuperou `{alvo['vida_atual'] - vida_anterior}` de vida!")
         
-        # Efeitos de Status (Atordoado, etc.)
+        # --- LÓGICA DE EFEITOS DE STATUS ATUALIZADA ---
         chance_efeito = efeitos_no_alvo.get('CHANCE_EFEITO', 1.0)
         if random.random() < chance_efeito:
-            if 'ATORDOADO' in efeitos_no_alvo:
-                duracao = efeitos_no_alvo['ATORDOADO']
-                alvo['efeitos_ativos'].append({'id': 'ATORDOADO', 'turnos_restantes': duracao})
-                log_acao.append(f"  -> **{nome_alvo}** foi atordoado!")
+            # Lista de todos os possíveis efeitos de status que uma habilidade pode aplicar
+            status_effects = ["ATORDOADO", "LENTIDAO", "ENVENENAMENTO", "SILENCIO"]
+            for efeito_id in status_effects:
+                if efeito_id in efeitos_no_alvo:
+                    duracao = efeitos_no_alvo[efeito_id]
+                    # Evita aplicar o mesmo efeito duas vezes
+                    if not any(e['id'] == efeito_id for e in alvo.get('efeitos_ativos', [])):
+                        alvo.setdefault('efeitos_ativos', []).append({'id': efeito_id, 'turnos_restantes': duracao})
+                        log_acao.append(f"  -> **{nome_alvo}** foi afetado por **{efeito_id.capitalize()}**!")
 
     # Processa efeitos no próprio conjurador (para habilidades de "rebote")
     if efeitos_no_self:

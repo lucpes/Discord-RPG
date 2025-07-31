@@ -4,7 +4,7 @@
 # O sistema escolherá aleatoriamente UM dos grupos para cada batalha.
 TIER_MONSTERS = {
     1: [
-        {"monstros": ["goblin_fraco", "goblin_fraco"]},
+        {"monstros": ["goblin_fraco", "goblin_fraco2"]},
         {"monstros": ["goblin_fraco", "slime_verde"]},
     ],
     2: [
