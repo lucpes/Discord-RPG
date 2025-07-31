@@ -3,8 +3,11 @@ import discord
 from discord import ui
 from discord.ext import commands
 import math
+import asyncio
 from firebase_config import db
 from firebase_admin import firestore
+import random
+
 from data.habilidades_library import HABILIDADES
 from data.classes_data import CLASSES_DATA, ORDERED_CLASSES
 from data.game_constants import EQUIPMENT_SLOTS, RARITY_EMOJIS
@@ -13,6 +16,9 @@ from utils.storage_helper import get_signed_url
 from data.construcoes_library import CONSTRUCOES
 from datetime import datetime, timedelta, timezone
 from utils.converters import find_player_by_game_id
+from data.dungeon_monsters import TIER_MONSTERS # NOVO IMPORT
+from data.monstros_library import MONSTROS
+from game.stat_calculator import calcular_stats_completos
 
 # ---------------------------------------------------------------------------------
 # VIEW DO PERFIL
@@ -237,7 +243,7 @@ class HabilidadesView(ui.View):
         await interaction.response.edit_message(content="✅ Habilidades atualizadas com sucesso!", view=None, embeds=[])
 
 # ---------------------------------------------------------------------------------
-# VIEW DE CRIAÇÃO DE CLASSE
+# VIEW DE CRIAÇÃO DE CLASSE (CORRIGIDA)
 # ---------------------------------------------------------------------------------
 class ClasseSelectionView(ui.View):
     def __init__(self, user: discord.User, bot: commands.Bot):
@@ -250,7 +256,7 @@ class ClasseSelectionView(ui.View):
         class_name = ORDERED_CLASSES[self.current_class_index]
         class_data = CLASSES_DATA[class_name]
         embed = discord.Embed(title=f"Escolha sua Classe: {class_name}", description=f"**Estilo:** {class_data['estilo']}", color=discord.Color.blue())
-        image_path = class_data.get('combat_image_path')
+        image_path = class_data.get('profile_image_path')
         if image_path:
             public_url = get_signed_url(image_path)
             embed.set_image(url=public_url)
@@ -287,17 +293,20 @@ class ClasseSelectionView(ui.View):
     async def previous_button(self, interaction: discord.Interaction, button: ui.Button):
         if interaction.user.id != self.user.id: return
         self.current_class_index = (self.current_class_index - 1) % len(ORDERED_CLASSES)
-        await self.update_message(interaction, button)
+        # CORRIGIDO: Removido o argumento 'button'
+        await self.update_message(interaction)
 
     @ui.button(label="✅ Selecionar", style=discord.ButtonStyle.success)
     async def select_button_callback(self, interaction: discord.Interaction, button: ui.Button):
-        await self.select_button(interaction, button)
+        # CORRIGIDO: Removido o argumento 'button'
+        await self.select_button(interaction)
 
     @ui.button(label="Próximo ➡️", style=discord.ButtonStyle.secondary)
     async def next_button(self, interaction: discord.Interaction, button: ui.Button):
         if interaction.user.id != self.user.id: return
         self.current_class_index = (self.current_class_index + 1) % len(ORDERED_CLASSES)
-        await self.update_message(interaction, button)
+        # CORRIGIDO: Removido o argumento 'button'
+        await self.update_message(interaction)
 
 # ---------------------------------------------------------------------------------
 # VIEWS DE GOVERNO
@@ -445,6 +454,17 @@ class GovernarPanelView(ui.View):
         manage_vices_button = ui.Button(label="Gerenciar Vice-Governadores", style=discord.ButtonStyle.secondary, emoji="👥", disabled=not self.is_governor)
         manage_vices_button.callback = self.manage_vices
         self.add_item(manage_vices_button)
+        
+        # --- ADICIONE ESTE NOVO BOTÃO ---
+        config_portal_button = ui.Button(
+            label="Configurar Portal", 
+            style=discord.ButtonStyle.secondary, 
+            emoji="🌀", 
+            disabled=not self.is_governor
+        )
+        config_portal_button.callback = self.open_portal_config
+        self.add_item(config_portal_button)
+        # --- FIM DA ADIÇÃO ---
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.author.id:
@@ -473,3 +493,255 @@ class GovernarPanelView(ui.View):
             vice_users_str = "Nenhum vice-governador nomeado."
         embed = discord.Embed(title="👥 Gerenciamento de Vice-Governadores", description=vice_users_str, color=discord.Color.blurple())
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        
+    # --- MÉTODO ATUALIZADO PARA A NOVA LÓGICA ---
+    async def open_portal_config(self, interaction: discord.Interaction):
+        # Responde pedindo para o usuário mencionar o canal
+        await interaction.response.send_message(
+            f"{interaction.user.mention}, por favor, mencione o canal de texto onde o Portal Abissal deve aparecer.\nVocê tem 60 segundos.",
+            ephemeral=True
+        )
+
+        def check(m: discord.Message):
+            return m.author == interaction.user and m.channel == interaction.channel
+
+        try:
+            # Espera por uma nova mensagem que passe no 'check'
+            msg = await self.bot.wait_for('message', check=check, timeout=60.0)
+
+            if msg.channel_mentions:
+                target_channel = msg.channel_mentions[0]
+                channel_id = target_channel.id
+
+                cidade_ref = db.collection('cidades').document(str(interaction.guild.id))
+                cidade_ref.set({"configuracoes": {"portal_channel_id": channel_id}}, merge=True)
+                
+                await interaction.edit_original_response(content=f"✅ Canal do Portal configurado para {target_channel.mention}!")
+                await msg.delete() # Deleta a mensagem do usuário com a menção
+            else:
+                await interaction.edit_original_response(content="❌ Nenhuma menção de canal válida encontrada. A configuração foi cancelada.")
+                await msg.delete()
+
+        except asyncio.TimeoutError:
+            await interaction.edit_original_response(content="⏰ Tempo esgotado! A configuração do portal foi cancelada.")
+        
+
+# ---------------------------------------------------------------------------------
+# VIEW DA FENDA ABISSAL ABERTA
+# ---------------------------------------------------------------------------------
+class PortalAbertoView(discord.ui.View):
+    def __init__(self, tier_maximo: int):
+        # Timeout=None faz com que a view persista mesmo após o bot reiniciar
+        super().__init__(timeout=None) 
+        
+        # Cria um botão para cada tier disponível
+        for i in range(1, tier_maximo + 1):
+            botao = discord.ui.Button(
+                label=f"Entrar - Tier {i}",
+                style=discord.ButtonStyle.secondary,
+                custom_id=f"portal_entrar_tier_{i}",
+                emoji="⚔️"
+            )
+            # No futuro, este callback terá a lógica de criar/entrar no lobby
+            botao.callback = self.entrar_na_fenda 
+            self.add_item(botao)
+
+    async def entrar_na_fenda(self, interaction: discord.Interaction):
+        # Por enquanto, este é um placeholder.
+        # A lógica completa do lobby virá no próximo passo.
+        custom_id = interaction.data['custom_id']
+        tier_selecionado = int(custom_id.split('_')[-1])
+        
+        await interaction.response.send_message(
+            f"Você se prepara para entrar na fenda de **Tier {tier_selecionado}**!\n"
+            f"*(A funcionalidade de lobby cooperativo será implementada a seguir...)*",
+            ephemeral=True
+        )
+        
+# --- VIEW DO LOBBY COOPERATIVO (CORRIGIDA) ---
+class LobbyView(ui.View):
+    def __init__(self, cidade_id: str, tier: int, lider_id: int):
+        super().__init__(timeout=None)
+        self.cidade_id = cidade_id
+        self.tier = tier
+        self.lider_id = lider_id
+        
+        # --- ALTERADO ---
+        # Armazenamos a referência do documento principal da cidade
+        self.cidade_ref = db.collection('cidades').document(self.cidade_id)
+        # E o caminho para o lobby que será usado nos 'updates'
+        self.lobby_update_path = f"portal_abissal_ativo.lobbies.tier_{self.tier}"
+
+    @ui.button(label="Entrar no Grupo", style=discord.ButtonStyle.success, custom_id="lobby_join")
+    async def join_lobby(self, interaction: discord.Interaction, button: ui.Button):
+        # --- CORRIGIDO ---
+        cidade_doc = self.cidade_ref.get()
+        if not cidade_doc.exists:
+            # Se a cidade foi deletada por algum motivo
+            await interaction.response.send_message("Erro: A cidade deste lobby não foi encontrada.", ephemeral=True)
+            return
+
+        lobby_info = cidade_doc.to_dict().get('portal_abissal_ativo', {}).get('lobbies', {}).get(f'tier_{self.tier}')
+        if not lobby_info:
+            await interaction.response.send_message("Este lobby não existe mais.", ephemeral=True, delete_after=10)
+            await interaction.message.delete()
+            return
+        
+        membros = lobby_info.get('membros', [])
+        if len(membros) >= 4:
+            return await interaction.response.send_message("❌ O grupo já está cheio!", ephemeral=True)
+        if interaction.user.id in membros:
+            return await interaction.response.send_message("Você já está neste grupo.", ephemeral=True)
+
+        # Atualiza o array de membros usando o caminho corrigido
+        update_path = f"{self.lobby_update_path}.membros"
+        self.cidade_ref.update({update_path: firestore.ArrayUnion([interaction.user.id])})
+        
+        # Atualiza a mensagem do lobby para o novo jogador ver
+        membros.append(interaction.user.id)
+        membros_mentions = [f"• <@{mid}>" for mid in membros]
+        
+        embed = interaction.message.embeds[0]
+        embed.description = f"**Líder:** <@{self.lider_id}>\n\n**Membros ({len(membros)}/4):**\n" + "\n".join(membros_mentions)
+        
+        await interaction.message.edit(embed=embed)
+        await interaction.response.defer()
+
+    @ui.button(label="Sair do Grupo", style=discord.ButtonStyle.danger, custom_id="lobby_leave")
+    async def leave_lobby(self, interaction: discord.Interaction, button: ui.Button):
+        # Lógica para sair do lobby (pode ser implementada depois)
+        await interaction.response.send_message("Você saiu do grupo.", ephemeral=True)
+
+    @ui.button(label="Iniciar Batalha", style=discord.ButtonStyle.primary, emoji="⚔️", custom_id="lobby_start")
+    async def start_battle(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.lider_id:
+            return await interaction.response.send_message("Apenas o líder do grupo pode iniciar a batalha.", ephemeral=True)
+        
+        await interaction.response.defer()
+
+        # --- CORRIGIDO ---
+        from cogs.mundo_cog import CoopBattleView
+
+        cidade_doc = self.cidade_ref.get()
+        if not cidade_doc.exists:
+            return await interaction.message.edit(content="Erro: A cidade deste lobby não foi encontrada.", view=None, embed=None)
+
+        lobby_info = cidade_doc.to_dict().get('portal_abissal_ativo', {}).get('lobbies', {}).get(f'tier_{self.tier}')
+        if not lobby_info:
+            return await interaction.message.edit(content="Este lobby expirou.", view=None, embed=None)
+
+        membros_ids = lobby_info.get('membros', [])
+        
+        # 1. PREPARAR JOGADORES
+        jogadores_para_batalha = []
+        for user_id in membros_ids:
+            user_id_str = str(user_id)
+            player_doc = db.collection('players').document(user_id_str).get()
+            char_doc = db.collection('characters').document(user_id_str).get()
+            if not player_doc.exists or not char_doc.exists: continue
+            
+            player_data = player_doc.to_dict()
+            char_data = char_doc.to_dict()
+            # Nota: A busca de itens equipados foi omitida por simplicidade,
+            # mas deve ser adicionada aqui se os stats dos itens forem importantes.
+            equipped_items = [] 
+            stats_finais = calcular_stats_completos(char_data, equipped_items)
+            
+            classe_info = CLASSES_DATA.get(char_data.get('classe'), {})
+            combat_path = classe_info.get('combat_image_path')
+            
+            jogador_data = {
+                "id": user_id, "nick": player_data.get('nick'),
+                "stats": stats_finais, "classe": char_data.get('classe'),
+                "vida_atual": stats_finais.get('VIDA_MAXIMA', 100),
+                "mana_atual": stats_finais.get('MANA_MAXIMA', 100),
+                "habilidades_equipadas": char_data.get('habilidades_equipadas', []),
+                "imagem_url": get_signed_url(combat_path) if combat_path else None,
+                "efeitos_ativos": []
+            }
+            jogadores_para_batalha.append(jogador_data)
+
+        # 2. PREPARAR MONSTROS
+        monstros_para_batalha = []
+        grupo_de_monstros = random.choice(TIER_MONSTERS[self.tier])
+        for monstro_id in grupo_de_monstros['monstros']:
+            template = MONSTROS[monstro_id].copy()
+            monstro_data = {
+                **template, # Copia todos os dados do template
+                "id": monstro_id,
+                "vida_atual": template['stats']['VIDA_MAXIMA'],
+                "efeitos_ativos": []
+            }
+            monstros_para_batalha.append(monstro_data)
+
+        # 3. INICIAR A BATALHA
+        # Passa a lista de jogadores e monstros para a nova BattleView
+        battle_view = CoopBattleView(
+            bot=interaction.client,
+            jogadores_data=jogadores_para_batalha,
+            monstros_data=monstros_para_batalha,
+            tier=self.tier
+        )
+        
+        embed = battle_view.create_battle_embed()
+        
+        # Edita a mensagem do lobby para se tornar a mensagem da batalha
+        await interaction.message.edit(embed=embed, view=battle_view)
+        battle_view.message = await interaction.original_response()
+
+        # Deleta o lobby de dentro do documento da cidade
+        self.cidade_ref.update({self.lobby_update_path: firestore.DELETE_FIELD})
+
+
+# --- VIEW DA FENDA ABISSAL ABERTA (ATUALIZADA) ---
+class PortalAbertoView(ui.View):
+    def __init__(self, tier_maximo: int):
+        super().__init__(timeout=None)
+        for i in range(1, tier_maximo + 1):
+            botao = ui.Button(label=f"Entrar - Tier {i}", style=discord.ButtonStyle.secondary, custom_id=f"portal_entrar_tier_{i}", emoji="🌀")
+            botao.callback = self.criar_ou_mostrar_lobby
+            self.add_item(botao)
+
+    async def criar_ou_mostrar_lobby(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        tier = int(interaction.data['custom_id'].split('_')[-1])
+        cidade_id = str(interaction.guild.id)
+        portal_ref = db.collection('cidades').document(cidade_id)
+        portal_doc = portal_ref.get()
+        
+        if not portal_doc.exists or 'portal_abissal_ativo' not in portal_doc.to_dict():
+            return await interaction.followup.send("O portal para esta fenda já se fechou!", ephemeral=True)
+        
+        # Caminho para o lobby específico deste tier no Firebase
+        lobby_path = f"portal_abissal_ativo.lobbies.tier_{tier}"
+        lobby_info = portal_doc.to_dict().get('portal_abissal_ativo', {}).get('lobbies', {}).get(f'tier_{tier}')
+
+        if lobby_info:
+            await interaction.followup.send("Já existe um lobby para este Tier. Procure a mensagem do lobby para entrar!", ephemeral=True)
+        else:
+            # CRIA UM NOVO LOBBY
+            lider_id = interaction.user.id
+            membros = [lider_id]
+            
+            view = LobbyView(cidade_id=cidade_id, tier=tier, lider_id=lider_id)
+            
+            embed_lobby = discord.Embed(
+                title=f"Lobby para a Fenda - Tier {tier}",
+                description=f"**Líder:** {interaction.user.mention}\n\n**Membros (1/4):**\n• {interaction.user.mention}",
+                color=discord.Color.blue()
+            )
+            embed_lobby.set_footer(text="A batalha começará quando o líder clicar em 'Iniciar Batalha'.")
+            
+            lobby_message = await interaction.channel.send(embed=embed_lobby, view=view)
+            
+            # Salva as informações do novo lobby no Firebase
+            novo_lobby_data = {
+                "lider_id": lider_id,
+                "membros": membros,
+                "message_id": lobby_message.id,
+                "criado_em": firestore.SERVER_TIMESTAMP
+            }
+            portal_ref.update({lobby_path: novo_lobby_data})
+            
+            await interaction.followup.send(f"Você criou um lobby para a Fenda de Tier {tier}!", ephemeral=True)

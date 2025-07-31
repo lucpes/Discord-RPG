@@ -123,7 +123,7 @@ class PersonagemCog(commands.Cog):
             # --- FIM DO BLOCO ATUALIZADO ---
         else:
             # Lógica para criar personagem continua a mesma
-            view = ClasseSelectionView(user=interaction.user)
+            view = ClasseSelectionView(user=interaction.user, bot=self.bot)
             initial_embed = view.create_embed()
             await interaction.followup.send( # followup.send aqui também
                 "Você ainda não tem um personagem. Vamos criar um agora! Escolha sua classe abaixo:",

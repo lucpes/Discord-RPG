@@ -2,7 +2,7 @@
 import discord
 import random
 import asyncio
-from discord import app_commands
+from discord import app_commands, ui
 from discord.ext import commands
 from firebase_admin import firestore
 from firebase_config import db
@@ -300,6 +300,99 @@ class BattleView(discord.ui.View):
         
     async def on_backpack_use(self, interaction: discord.Interaction):
         await interaction.response.send_message("O uso de itens em batalha será implementado em breve!", ephemeral=True)
+        
+class CoopBattleView(discord.ui.View):
+    def __init__(self, bot: commands.Bot, jogadores_data: list, monstros_data: list, tier: int):
+        super().__init__(timeout=None)
+        self.bot = bot
+        self.jogadores = jogadores_data
+        self.monstros = monstros_data
+        self.tier = tier
+        
+        # Novo sistema de turnos
+        self.ordem_de_turno = self.jogadores.copy() # Começa com os jogadores
+        self.combatente_atual_index = 0
+        self.combatente_atual = self.ordem_de_turno[self.combatente_atual_index]
+
+        self.log_batalha = f"Uma batalha de Tier {tier} começou! É a vez de **{self.combatente_atual['nick']}**."
+        self.message: discord.Message = None
+
+        self.update_buttons_for_turn()
+
+    def update_buttons_for_turn(self):
+        self.clear_items()
+        
+        if self.combatente_atual in self.jogadores:
+            jogador_atual = self.combatente_atual
+            
+            ataque_basico = discord.ui.Button(label="Ataque Básico", style=discord.ButtonStyle.secondary, custom_id="basic_attack", emoji="🗡️")
+            ataque_basico.callback = self.on_action_select
+            self.add_item(ataque_basico)
+
+            for skill_id in jogador_atual.get('habilidades_equipadas', []):
+                skill_info = HABILIDADES.get(skill_id)
+                if skill_info and skill_info.get('tipo') == 'ATIVA':
+                    button = discord.ui.Button(label=skill_info['nome'], style=discord.ButtonStyle.primary, custom_id=skill_id, emoji=skill_info.get('emoji'))
+                    button.callback = self.on_action_select
+                    self.add_item(button)
+    
+    async def on_action_select(self, interaction: discord.Interaction):
+        await interaction.response.send_message("A lógica de turnos e seleção de alvos virá no próximo passo!", ephemeral=True)
+
+    def create_battle_embed(self) -> discord.Embed:
+        embed = discord.Embed(
+            title=f"⚔️ Fenda Abissal - Tier {self.tier} ⚔️", 
+            color=discord.Color.dark_orange()
+        )
+        
+        # --- ALTERAÇÃO: Adiciona a imagem de quem está no turno ---
+        if image_url := self.combatente_atual.get('imagem_url'):
+            embed.set_image(url=image_url)
+        
+        # Campo de Jogadores
+        jogadores_str = ""
+        for p in self.jogadores:
+            # --- ALTERAÇÃO: Adiciona o indicador de turno 🎯 ---
+            indicador_turno = "🎯" if p is self.combatente_atual else ""
+            
+            vida_atual_p = p['vida_atual']
+            vida_maxima_p = p['stats']['VIDA_MAXIMA']
+            mana_atual = p['mana_atual']
+            mana_maxima = p['stats']['MANA_MAXIMA']
+            hp_bar_p = criar_barra_status(vida_atual_p, vida_maxima_p, '🟥')
+            mp_bar = criar_barra_status(mana_atual, mana_maxima, '🟦')
+            status_emoji_p = "✅" 
+            
+            jogadores_str += (
+                f"{status_emoji_p} **{p['nick']}** ({p['classe']}) {indicador_turno}\n"
+                f"`HP: {vida_atual_p}/{vida_maxima_p}`\n{hp_bar_p}\n"
+                f"`MP: {mana_atual}/{mana_maxima}`\n{mp_bar}\n\n"
+            )
+        embed.add_field(name="Aventureiros", value=jogadores_str.strip(), inline=True)
+        
+        # Campo de Monstros
+        monstros_str = ""
+        for m in self.monstros:
+            # --- ALTERAÇÃO: Adiciona o indicador de turno 🎯 ---
+            indicador_turno = "🎯" if m is self.combatente_atual else ""
+
+            vida_atual_m = m['vida_atual']
+            vida_maxima_m = m['stats']['VIDA_MAXIMA']
+            hp_bar_m = criar_barra_status(vida_atual_m, vida_maxima_m, '🟪')
+            status_emoji_m = "👹"
+
+            monstros_str += (
+                f"{status_emoji_m} **{m['nome']}** {indicador_turno}\n"
+                f"`HP: {vida_atual_m}/{vida_maxima_m}`\n{hp_bar_m}\n\n"
+            )
+        embed.add_field(name="Monstros", value=monstros_str.strip(), inline=True)
+        
+        embed.add_field(name="Log de Batalha", value=f">>> {self.log_batalha}", inline=False)
+        
+        # O rodapé agora é um reforço visual
+        embed.set_footer(text=f"Turno de: {self.combatente_atual.get('nick', self.combatente_atual.get('nome'))}")
+        return embed
+    
 
 class MundoCog(commands.Cog):
     # (A classe MundoCog não precisa de alterações)

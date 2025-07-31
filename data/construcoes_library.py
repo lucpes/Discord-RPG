@@ -86,4 +86,17 @@ CONSTRUCOES = {
         "emoji": "🏦",
         "descricao": "Guarde seus itens e moedas com segurança. Níveis mais altos aumentam a capacidade."
     },
+    "PORTAL_ABISSAL": {
+        "nome": "Portal Abissal", "emoji": "🌀",
+        "categoria": "SERVICOS",
+        "descricao": "Uma fenda instável para outras dimensões. Níveis mais altos permitem o acesso a tiers de maior perigo e recompensa.",
+        "niveis": [
+            # Custo para ir do Nível 0 -> 1 (construir)
+            {"custo": {"MOEDAS": 10000}, "tempo_s": 7200, "frequencia_h": 6, "duracao_min": 30},
+            # Custo para ir do Nível 1 -> 2
+            {"custo": {"MOEDAS": 25000}, "tempo_s": 14400, "frequencia_h": 5, "duracao_min": 35},
+            # Custo para ir do Nível 2 -> 3
+            {"custo": {"MOEDAS": 75000}, "tempo_s": 28800, "frequencia_h": 4, "duracao_min": 40},
+        ]
+    },
 }
