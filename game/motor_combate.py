@@ -1,7 +1,7 @@
 # game/motor_combate.py
 from data.habilidades_library import HABILIDADES
 import random
-from typing import Tuple
+from typing import Tuple, List, Dict
 
 def aplicar_efeitos_periodicos(combatente: dict) -> str:
     log = ""
@@ -42,6 +42,98 @@ def calcular_dano(dano_atacante: int, armadura_defensor: int) -> int:
     dano_final = dano_atacante * (1 - reducao)
     variacao = dano_final * 0.1
     return int(random.uniform(dano_final - variacao, dano_final + variacao))
+
+# ---------------------------------------------------------------------------
+# NOVO MOTOR DE COMBATE EM GRUPO
+# ---------------------------------------------------------------------------
+
+def processar_acao_em_grupo(conjurador: Dict, alvos: List[Dict], habilidade_id: str) -> Dict:
+    """
+    Processa uma ação de um conjurador em uma lista de alvos no combate em grupo.
+    """
+    if habilidade_id == "basic_attack":
+        habilidade = {"nome": "Ataque Básico", "custo_mana": 0, "efeitos": {"DANO": conjurador['stats'].get('DANO', 5)}, "alvo": "inimigo"}
+    else:
+        habilidade = HABILIDADES.get(habilidade_id)
+
+    if not habilidade:
+        return {"log": "Habilidade desconhecida."}
+
+    custo_mana = habilidade.get('custo_mana', 0)
+    if conjurador.get('mana_atual', 0) < custo_mana:
+        return {"log": f"**{conjurador['nick']}** tentou usar **{habilidade['nome']}**, mas não tem mana suficiente!"}
+
+    conjurador['mana_atual'] -= custo_mana
+    log_acao = [f"**{conjurador.get('nick', conjurador.get('nome'))}** usa **{habilidade['nome']}**!"]
+    
+    efeitos_no_alvo = habilidade.get('efeitos', {}).get('no_alvo', habilidade.get('efeitos', {}))
+    efeitos_no_self = habilidade.get('efeitos', {}).get('no_self', {})
+
+    for alvo in alvos:
+        nome_alvo = alvo.get('nick', alvo.get('nome'))
+        
+        # --- CORREÇÃO NO CÁLCULO DE DANO ---
+        dano_fisico = efeitos_no_alvo.get('DANO', 0)
+        if dano_fisico > 0:
+            # Para habilidades, o dano é o base do jogador + o bônus da skill.
+            # Para o ataque básico, o bônus da skill JÁ É o dano base do jogador.
+            dano_base = conjurador['stats'].get('DANO', 0) + dano_fisico if habilidade_id != "basic_attack" else dano_fisico
+            dano_final = calcular_dano(dano_base, alvo['stats'].get('ARMADURA', 0))
+            alvo['vida_atual'] -= dano_final
+            log_acao.append(f"  -> **{nome_alvo}** sofreu `{dano_final}` de dano físico!")
+
+        # Cura
+        cura = efeitos_no_alvo.get('CURA', 0)
+        if cura > 0:
+            vida_max = alvo['stats'].get('VIDA_MAXIMA', 100)
+            vida_anterior = alvo['vida_atual']
+            alvo['vida_atual'] = min(vida_max, vida_anterior + cura)
+            log_acao.append(f"  -> **{nome_alvo}** recuperou `{alvo['vida_atual'] - vida_anterior}` de vida!")
+        
+        # Efeitos de Status (Atordoado, etc.)
+        chance_efeito = efeitos_no_alvo.get('CHANCE_EFEITO', 1.0)
+        if random.random() < chance_efeito:
+            if 'ATORDOADO' in efeitos_no_alvo:
+                duracao = efeitos_no_alvo['ATORDOADO']
+                alvo['efeitos_ativos'].append({'id': 'ATORDOADO', 'turnos_restantes': duracao})
+                log_acao.append(f"  -> **{nome_alvo}** foi atordoado!")
+
+    # Processa efeitos no próprio conjurador (para habilidades de "rebote")
+    if efeitos_no_self:
+        nome_conjurador = conjurador.get('nick', conjurador.get('nome'))
+        if 'ATORDOADO' in efeitos_no_self:
+            duracao = efeitos_no_self['ATORDOADO']
+            conjurador['efeitos_ativos'].append({'id': 'ATORDOADO', 'turnos_restantes': duracao})
+            log_acao.append(f"  -> O recuo da magia atordoa **{nome_conjurador}**!")
+
+    return {"log": "\n".join(log_acao)}
+
+
+def processar_turno_monstro_em_grupo(monstro: Dict, jogadores: List[Dict]) -> Dict:
+    """
+    Processa o turno de um único monstro contra o grupo de jogadores.
+    (Será implementado no próximo passo)
+    """
+    # Escolhe um alvo aleatório que esteja vivo
+    alvos_vivos = [p for p in jogadores if p['vida_atual'] > 0]
+    if not alvos_vivos:
+        return {"log": ""} # Ninguém para atacar
+
+    alvo = random.choice(alvos_vivos)
+    
+    dano_base = monstro['stats'].get('DANO', 5)
+    dano_final = calcular_dano(dano_base, alvo['stats'].get('ARMADURA', 0))
+    alvo['vida_atual'] -= dano_final
+
+    log = (
+        f"O **{monstro['nome']}** ataca **{alvo['nick']}**!\n"
+        f"  -> **{alvo['nick']}** sofreu `{dano_final}` de dano!"
+    )
+    return {"log": log}
+
+# ---------------------------------------------------------------------------
+# FUNÇÕES 1v1 (LEGADO - Usadas pelo /explorar)
+# ---------------------------------------------------------------------------
 
 def processar_acao_jogador(jogador: dict, monstro: dict, skill_id: str) -> dict:
     if skill_id == "basic_attack":

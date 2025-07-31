@@ -42,7 +42,7 @@ HABILIDADES = {
         "nome": "Raio Congelante", "emoji": "❄️", "tipo": "ATIVA",
         "custo_mana": 15,
         "descricao": "Dispara um raio de gelo que pode deixar o inimigo lento.",
-        "efeitos": {"DANO_MAGICO": 20, "LENTIDAO": 1},
+        "efeitos": {"DANO": 20, "LENTIDAO": 1},
         "alvo": "inimigo"
     },
     # Habilidade Ultimate com uso limitado

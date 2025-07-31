@@ -619,7 +619,6 @@ class LobbyView(ui.View):
         
         await interaction.response.defer()
 
-        # --- CORRIGIDO ---
         from cogs.mundo_cog import CoopBattleView
 
         cidade_doc = self.cidade_ref.get()
@@ -632,24 +631,19 @@ class LobbyView(ui.View):
 
         membros_ids = lobby_info.get('membros', [])
         
-        # 1. PREPARAR JOGADORES
+        # --- Preparação de Jogadores e Monstros (sem alterações) ---
         jogadores_para_batalha = []
         for user_id in membros_ids:
             user_id_str = str(user_id)
             player_doc = db.collection('players').document(user_id_str).get()
             char_doc = db.collection('characters').document(user_id_str).get()
             if not player_doc.exists or not char_doc.exists: continue
-            
             player_data = player_doc.to_dict()
             char_data = char_doc.to_dict()
-            # Nota: A busca de itens equipados foi omitida por simplicidade,
-            # mas deve ser adicionada aqui se os stats dos itens forem importantes.
             equipped_items = [] 
             stats_finais = calcular_stats_completos(char_data, equipped_items)
-            
             classe_info = CLASSES_DATA.get(char_data.get('classe'), {})
             combat_path = classe_info.get('combat_image_path')
-            
             jogador_data = {
                 "id": user_id, "nick": player_data.get('nick'),
                 "stats": stats_finais, "classe": char_data.get('classe'),
@@ -661,21 +655,16 @@ class LobbyView(ui.View):
             }
             jogadores_para_batalha.append(jogador_data)
 
-        # 2. PREPARAR MONSTROS
         monstros_para_batalha = []
         grupo_de_monstros = random.choice(TIER_MONSTERS[self.tier])
         for monstro_id in grupo_de_monstros['monstros']:
             template = MONSTROS[monstro_id].copy()
-            monstro_data = {
-                **template, # Copia todos os dados do template
-                "id": monstro_id,
-                "vida_atual": template['stats']['VIDA_MAXIMA'],
-                "efeitos_ativos": []
-            }
+            monstro_data = {**template, "id": monstro_id, "vida_atual": template['stats']['VIDA_MAXIMA'], "efeitos_ativos": []}
             monstros_para_batalha.append(monstro_data)
-
-        # 3. INICIAR A BATALHA
-        # Passa a lista de jogadores e monstros para a nova BattleView
+        
+        # --- LÓGICA DE INICIALIZAÇÃO CORRIGIDA ---
+        
+        # 1. Cria a View da batalha
         battle_view = CoopBattleView(
             bot=interaction.client,
             jogadores_data=jogadores_para_batalha,
@@ -683,13 +672,16 @@ class LobbyView(ui.View):
             tier=self.tier
         )
         
-        embed = battle_view.create_battle_embed()
+        # 2. Edita a mensagem do lobby para um placeholder enquanto a batalha carrega
+        await interaction.message.edit(content="Iniciando batalha...", embed=None, view=None)
         
-        # Edita a mensagem do lobby para se tornar a mensagem da batalha
-        await interaction.message.edit(embed=embed, view=battle_view)
+        # 3. Associa a mensagem à View para que ela possa se auto-atualizar
         battle_view.message = await interaction.original_response()
 
-        # Deleta o lobby de dentro do documento da cidade
+        # 4. Inicia o ciclo de turnos, que vai definir o primeiro combatente e desenhar o painel
+        await battle_view.iniciar_batalha()
+
+        # 5. Deleta o lobby do Firebase, pois a batalha já começou
         self.cidade_ref.update({self.lobby_update_path: firestore.DELETE_FIELD})
 
 
