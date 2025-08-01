@@ -32,7 +32,7 @@ def criar_barra_status(atual: int, maximo: int, cor_cheia: str, tamanho: int = 1
     cor_vazia = '▬'
     return f"`[{cor_cheia * blocos_cheios}{cor_vazia * blocos_vazios}]`"
 
-class BattleView(discord.ui.View):
+"""class BattleView(discord.ui.View):
     def __init__(self, author: discord.User, bot: commands.Bot, jogador_data: dict, monstro_data: dict):
         super().__init__(timeout=None)
         self.author = author
@@ -301,36 +301,30 @@ class BattleView(discord.ui.View):
         await self.message.edit(embed=embed, view=None)
         
     async def on_backpack_use(self, interaction: discord.Interaction):
-        await interaction.response.send_message("O uso de itens em batalha será implementado em breve!", ephemeral=True)
+        await interaction.response.send_message("O uso de itens em batalha será implementado em breve!", ephemeral=True)"""
         
-# --- CLASSE CoopBattleView COM A TELA DE VITÓRIA FUNCIONAL ---
-class CoopBattleView(discord.ui.View):
-    def __init__(self, bot: commands.Bot, jogadores_data: list, monstros_data: list, tier: int):
+# --- A VERSÃO FINAL E CORRIGIDA DA BATTLEVIEW ---
+class BattleView(ui.View):
+    def __init__(self, bot: commands.Bot, jogadores_data: list, monstros_data: list, tier: int = 1):
         super().__init__(timeout=300)
         self.bot = bot
         self.jogadores = jogadores_data
         self.monstros = monstros_data
         self.tier = tier
-        
-        # --- ADIÇÃO IMPORTANTE ---
-        # Guarda uma cópia da lista original de monstros para calcular as recompensas no final
         self.monstros_originais = monstros_data.copy()
-        
         self.ordem_de_turno = []
         self.combatente_atual_index = -1 
         self.combatente_atual = None
         self.estado = "INICIANDO"
         self.habilidade_selecionada = None
-        self.log_batalha = f"Uma batalha de Tier {tier} começou!"
+        self.log_batalha = f"Uma batalha começou!"
         self.message: discord.Message = None
+        self._configurar_botoes_para_turno()
 
     async def iniciar_batalha(self):
-        """Função chamada externamente para dar o pontapé inicial no ciclo de turnos."""
         await self.avancar_turno()
 
     async def avancar_turno(self):
-        """Gerencia o fluxo de turnos, pulando monstros e parando em jogadores."""
-        # Filtra os mortos no início de cada avanço
         self.jogadores = [p for p in self.jogadores if p['vida_atual'] > 0]
         self.monstros = [m for m in self.monstros if m['vida_atual'] > 0]
         
@@ -339,56 +333,54 @@ class CoopBattleView(discord.ui.View):
 
         self.ordem_de_turno = self.jogadores + self.monstros
         
-        # Avança para o próximo combatente
         self.combatente_atual_index = (self.combatente_atual_index + 1) % len(self.ordem_de_turno)
         self.combatente_atual = self.ordem_de_turno[self.combatente_atual_index]
 
-        # Atualiza o log para o novo turno
         novo_log = f"É a vez de **{self.combatente_atual.get('nick', self.combatente_atual.get('nome'))}**."
         log_antigo = self.log_batalha.split('---')[-1].strip()
         self.log_batalha = f"{log_antigo}\n---\n{novo_log}"
 
-        # --- LÓGICA PRINCIPAL CORRIGIDA ---
-        # Se for um monstro, resolve o turno dele e chama a si mesmo para avançar de novo.
         if self.combatente_atual in self.monstros:
             self.estado = "TURNO_MONSTRO"
-            await self.atualizar_mensagem_batalha() # Mostra o painel (sem botões)
-            await asyncio.sleep(2.5) # Pausa para o jogador ler
-
+            await self.atualizar_mensagem_batalha()
+            await asyncio.sleep(2.5)
+            
             resultado_monstro = processar_turno_monstro_em_grupo(self.combatente_atual, self.jogadores)
             self.log_batalha += "\n" + resultado_monstro.get('log', '')
             
-            # Chama a si mesmo para passar para o próximo combatente
             await self.avancar_turno()
-        
-        # Se for um jogador, para e espera a interação.
         else:
             self.estado = "ESCOLHENDO_ACAO"
-            await self.atualizar_mensagem_batalha() # Mostra o painel (com botões de ação)
+            await self.atualizar_mensagem_batalha()
 
-    # Função síncrona apenas para criar os botões
     def _configurar_botoes_para_turno(self):
         self.clear_items()
         
         if self.estado == "ESCOLHENDO_ACAO" and self.combatente_atual in self.jogadores:
             jogador_atual = self.combatente_atual
+            
             ataque_basico = discord.ui.Button(label="Ataque Básico", custom_id="basic_attack", emoji="🗡️")
             ataque_basico.callback = self.on_skill_click
             self.add_item(ataque_basico)
+
             for skill_id in jogador_atual.get('habilidades_equipadas', []):
                 skill_info = HABILIDADES.get(skill_id)
-                if skill_info and skill_info.get('tipo') == 'ATIVA':
-                    button = discord.ui.Button(label=skill_info['nome'], custom_id=skill_id, emoji=skill_info.get('emoji'))
-                    button.callback = self.on_skill_click
+                if skill_info:
+                    is_passive = skill_info.get('tipo') == 'PASSIVA'
+                    button_style = discord.ButtonStyle.secondary if is_passive else discord.ButtonStyle.primary
+                    button = discord.ui.Button(
+                        label=skill_info['nome'], style=button_style, custom_id=skill_id,
+                        emoji=skill_info.get('emoji'), disabled=is_passive
+                    )
+                    if not is_passive:
+                        button.callback = self.on_skill_click
                     self.add_item(button)
 
         elif self.estado == "ESCOLHENDO_ALVO":
             skill_info = HABILIDADES.get(self.habilidade_selecionada, {})
             target_type = skill_info.get("alvo", "inimigo")
-            alvos_disponiveis = [m for m in self.monstros if m['vida_atual'] > 0] if target_type == "inimigo" else [p for p in self.jogadores if p['vida_atual'] > 0]
+            alvos_disponiveis = [m for m in self.monstros if m['vida_atual'] > 0] if target_type in ["inimigo", "inimigo_e_self"] else [p for p in self.jogadores if p['vida_atual'] > 0]
             
-            # --- A CORREÇÃO ESTÁ AQUI ---
-            # O custom_id agora usa 'i' de enumerate, que é sempre único (0, 1, 2...).
             for i, alvo in enumerate(alvos_disponiveis):
                 button = discord.ui.Button(label=alvo.get('nick', alvo.get('nome')), custom_id=f"target_{i}")
                 button.callback = self.on_target_click
@@ -399,81 +391,7 @@ class CoopBattleView(discord.ui.View):
             self.add_item(cancel_button)
 
     async def atualizar_mensagem_batalha(self):
-        """Prepara os botões e atualiza a mensagem."""
         self._configurar_botoes_para_turno()
-        embed = self.create_battle_embed()
-        if self.message:
-            await self.message.edit(embed=embed, view=self)
-
-    async def avancar_turno(self):
-        # Filtra combatentes mortos
-        self.jogadores = [p for p in self.jogadores if p['vida_atual'] > 0]
-        self.monstros = [m for m in self.monstros if m['vida_atual'] > 0]
-        
-        if not self.monstros:
-            return await self.vitoria()
-        if not self.jogadores:
-            return await self.derrota()
-
-        self.ordem_de_turno = self.jogadores + self.monstros
-        # Lógica para encontrar o próximo combatente na lista de vivos
-        try:
-            current_true_index = self.ordem_de_turno.index(self.combatente_atual)
-            self.combatente_atual_index = (current_true_index + 1) % len(self.ordem_de_turno)
-        except ValueError: # Caso o combatente atual tenha morrido
-            self.combatente_atual_index = 0
-
-        self.combatente_atual = self.ordem_de_turno[self.combatente_atual_index]
-        
-        novo_log = f"É a vez de **{self.combatente_atual.get('nick', self.combatente_atual.get('nome'))}**."
-        log_antigo = self.log_batalha.split('---')[-1].strip()
-        self.log_batalha = f"{log_antigo}\n---\n{novo_log}"
-        
-        self.estado = "ESCOLHENDO_ACAO"
-        
-        await self.update_view_para_turno() #
-
-        if self.combatente_atual in self.monstros:
-            await asyncio.sleep(2.5)
-            
-            resultado_monstro = processar_turno_monstro_em_grupo(self.combatente_atual, self.jogadores)
-            self.log_batalha += "\n" + resultado_monstro.get('log', '')
-            
-            await self.avancar_turno()
-
-    async def update_view_para_turno(self):
-        self.clear_items()
-        
-        if self.estado == "ESCOLHENDO_ACAO" and self.combatente_atual in self.jogadores:
-            jogador_atual = self.combatente_atual
-            ataque_basico = discord.ui.Button(label="Ataque Básico", custom_id="basic_attack", emoji="🗡️")
-            ataque_basico.callback = self.on_skill_click
-            self.add_item(ataque_basico)
-
-            for skill_id in jogador_atual.get('habilidades_equipadas', []):
-                skill_info = HABILIDADES.get(skill_id)
-                if skill_info and skill_info.get('tipo') == 'ATIVA':
-                    button = discord.ui.Button(label=skill_info['nome'], custom_id=skill_id, emoji=skill_info.get('emoji'))
-                    button.callback = self.on_skill_click
-                    self.add_item(button)
-
-        elif self.estado == "ESCOLHENDO_ALVO":
-            skill_info = HABILIDADES.get(self.habilidade_selecionada, {})
-            target_type = skill_info.get("alvo", "inimigo")
-
-            alvos_disponiveis = [m for m in self.monstros if m['vida_atual'] > 0] if target_type == "inimigo" else [p for p in self.jogadores if p['vida_atual'] > 0]
-            
-            for i, alvo in enumerate(alvos_disponiveis):
-                # O custom_id agora guarda o índice original do alvo na lista mestre
-                original_index = (self.monstros if target_type == "inimigo" else self.jogadores).index(alvo)
-                button = discord.ui.Button(label=alvo.get('nick', alvo.get('nome')), custom_id=f"target_{original_index}")
-                button.callback = self.on_target_click
-                self.add_item(button)
-            
-            cancel_button = discord.ui.Button(label="Cancelar", style=discord.ButtonStyle.danger, custom_id="cancel_action")
-            cancel_button.callback = self.on_cancel_click
-            self.add_item(cancel_button)
-
         embed = self.create_battle_embed()
         if self.message:
             await self.message.edit(embed=embed, view=self)
@@ -481,16 +399,14 @@ class CoopBattleView(discord.ui.View):
     async def on_skill_click(self, interaction: discord.Interaction):
         if interaction.user.id != self.combatente_atual.get('id'):
             return await interaction.response.send_message("Não é o seu turno para agir!", ephemeral=True)
-        
         await interaction.response.defer()
-        
         skill_id = interaction.data['custom_id']
         skill_info = HABILIDADES.get(skill_id, {})
         target_type = skill_info.get("alvo", "inimigo")
-        
         self.habilidade_selecionada = skill_id
         
-        if target_type in ["self", "todos_inimigos", "grupo_aliado", "outros_aliados", "aleatorio_inimigo"]:
+        alvos_sem_selecao = ["self", "todos_inimigos", "grupo_aliado", "outros_aliados", "aleatorio_inimigo"]
+        if target_type in alvos_sem_selecao:
             alvos = []
             if target_type == "self": alvos = [self.combatente_atual]
             elif target_type == "todos_inimigos": alvos = [m for m in self.monstros if m['vida_atual'] > 0]
@@ -501,11 +417,10 @@ class CoopBattleView(discord.ui.View):
             if alvos:
                 resultado = processar_acao_em_grupo(self.combatente_atual, alvos, skill_id)
                 self.log_batalha += "\n" + resultado.get('log', '')
-            
             await self.avancar_turno()
         else:
             self.estado = "ESCOLHENDO_ALVO"
-            await self.update_view_para_turno()
+            await self.atualizar_mensagem_batalha()
 
     async def on_target_click(self, interaction: discord.Interaction):
         if interaction.user.id != self.combatente_atual.get('id'):
@@ -515,9 +430,7 @@ class CoopBattleView(discord.ui.View):
         skill_info = HABILIDADES.get(self.habilidade_selecionada, {})
         target_type = skill_info.get("alvo", "inimigo")
 
-        # --- PONTO PRINCIPAL DA CORREÇÃO ---
-        # Recria a lista de alvos para garantir que o índice seja o correto.
-        alvos_disponiveis = [m for m in self.monstros if m['vida_atual'] > 0] if target_type == "inimigo" else [p for p in self.jogadores if p['vida_atual'] > 0]
+        alvos_disponiveis = [m for m in self.monstros if m['vida_atual'] > 0] if target_type in ["inimigo", "inimigo_e_self"] else [p for p in self.jogadores if p['vida_atual'] > 0]
         
         try:
             alvo = alvos_disponiveis[target_index]
@@ -535,11 +448,10 @@ class CoopBattleView(discord.ui.View):
     async def on_cancel_click(self, interaction: discord.Interaction):
         if interaction.user.id != self.combatente_atual.get('id'):
             return await interaction.response.send_message("Não é o seu turno para agir!", ephemeral=True)
-        
         await interaction.response.defer()
         self.estado = "ESCOLHENDO_ACAO"
         self.habilidade_selecionada = None
-        await self.update_view_para_turno()
+        await self.atualizar_mensagem_batalha()
 
     def create_battle_embed(self) -> discord.Embed:
         embed = discord.Embed(
@@ -676,10 +588,12 @@ class MundoCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="explorar", description="Explore a área em busca de monstros.")
+    # --- COMANDO /EXPLORAR ATUALIZADO ---
+    @app_commands.command(name="explorar", description="Explore os arredores em busca de monstros para batalhar.")
     async def explorar(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-        user_id_str = str(interaction.user.id)
+        await interaction.response.defer(ephemeral=True)
+        user_id = interaction.user.id # Usamos o ID como número
+        user_id_str = str(user_id) # A versão em texto é usada para o Firebase
         player_ref = db.collection('players').document(user_id_str)
         player_doc = player_ref.get()
         char_ref = db.collection('characters').document(user_id_str)
@@ -705,7 +619,8 @@ class MundoCog(commands.Cog):
         combat_path = classe_info.get('combat_image_path')
         combat_url = get_signed_url(combat_path) if combat_path else None
         
-        jogador_para_batalha = {
+        jogadores_para_batalha = [{
+            "id": user_id, # A ETIQUETA DE IDENTIFICAÇÃO QUE FALTAVA
             "stats": stats_completos,
             "vida_atual": vida_atual_corrigida,
             "mana_atual": mana_atual_corrigida,
@@ -715,27 +630,29 @@ class MundoCog(commands.Cog):
             "nick": player_data.get('nick', interaction.user.display_name),
             "nome": player_data.get('nick', interaction.user.display_name), # Adicionado para consistência
             "efeitos_ativos": [] # NOVO: Inicializa a lista de efeitos
-        }
+        }]
+        # PREPARA O MONSTRO PARA A BATALHA (agora em uma lista)
         monster_id = random.choice(list(MONSTROS.keys()))
-        monstro_template = MONSTROS[monster_id]
-        
-        # --- BLOCO CORRIGIDO ABAIXO ---
-
-        # 1. Faz uma cópia COMPLETA do template do monstro.
-        #    Isso garante que loot_table, moedas_recompensa, e tudo mais seja incluído.
-        monstro_para_batalha = monstro_template.copy()
-        
-        # 2. Adiciona os dados específicos da instância da batalha.
-        monstro_para_batalha['id'] = monster_id
-        monstro_para_batalha['vida_atual'] = monstro_template['stats']['VIDA_MAXIMA']
-        monstro_para_batalha['efeitos_ativos'] = []
+        template = MONSTROS[monster_id].copy()
+        monstros_para_batalha = [{
+            **template,
+            "id": monster_id,
+            "vida_atual": template['stats']['VIDA_MAXIMA'],
+            "efeitos_ativos": []
+        }]
         
         
-        view = BattleView(author=interaction.user, bot=self.bot, jogador_data=jogador_para_batalha, monstro_data=monstro_para_batalha)
-        embed = view.create_battle_embed(turno_de='jogador')
-        message = await interaction.followup.send(embed=embed, view=view)
+        # CHAMA A NOVA BATTLEVIEW GLOBAL
+        view = BattleView(
+            bot=self.bot,
+            jogadores_data=jogadores_para_batalha,
+            monstros_data=monstros_para_batalha,
+            tier=1 # Batalhas de exploração são sempre Tier 1
+        )
+        
+        message = await interaction.followup.send("Você encontrou um inimigo!", ephemeral=True)
         view.message = message
-        view.start_turn_timer()
+        await view.iniciar_batalha()
         
     # --- NOVO COMANDO /VIAJAR ---
     @app_commands.command(name="viajar", description="Viaje para a cidade atual (o servidor onde o comando é usado).")

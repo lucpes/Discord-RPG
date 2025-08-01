@@ -619,7 +619,7 @@ class LobbyView(ui.View):
         
         await interaction.response.defer()
 
-        from cogs.mundo_cog import CoopBattleView
+        from cogs.mundo_cog import BattleView
 
         cidade_doc = self.cidade_ref.get()
         if not cidade_doc.exists:
@@ -665,7 +665,7 @@ class LobbyView(ui.View):
         # --- LÓGICA DE INICIALIZAÇÃO CORRIGIDA ---
         
         # 1. Cria a View da batalha
-        battle_view = CoopBattleView(
+        battle_view = BattleView(
             bot=interaction.client,
             jogadores_data=jogadores_para_batalha,
             monstros_data=monstros_para_batalha,
