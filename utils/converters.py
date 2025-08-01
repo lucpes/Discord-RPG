@@ -1,45 +1,42 @@
 # utils/converters.py
+
 import discord
-from discord.ext import commands
 from firebase_config import db
 
-# --- FUNÇÃO CORRIGIDA ---
-# Trocamos 'ctx' por 'interaction' para deixar claro o que a função espera
-async def find_player_by_game_id(interaction: discord.Interaction, game_id: int):
+async def find_player_by_game_id(ctx_or_inter, game_id: int):
     """
-    Busca um jogador no Firebase pelo ID do jogo e retorna o objeto User/Member do Discord.
-    Retorna (discord.User | discord.Member, discord_id_str) ou (None, None) se não encontrar.
+    Encontra um jogador pelo seu ID de Jogo.
+    Funciona tanto com Context (ctx) de comandos de prefixo
+    quanto com Interaction (inter) de comandos de barra.
     """
-    players_ref = db.collection('players').where('game_id', '==', game_id).limit(1).stream()
-    
-    player_doc = None
-    for doc in players_ref:
-        player_doc = doc
-        break
+    # --- LÓGICA CORRIGIDA AQUI ---
+    # Pega o bot, seja de um ctx ou de uma interaction
+    bot = getattr(ctx_or_inter, 'bot', getattr(ctx_or_inter, 'client', None))
+    if not bot:
+        # Isso não deve acontecer, mas é uma salvaguarda
+        return None, None
 
+    query = db.collection('players').where('game_id', '==', game_id).limit(1).stream()
+    
+    player_doc = next(query, None)
     if not player_doc:
         return None, None
-        
+
     discord_id_str = player_doc.id
-    user = None
+    try:
+        # Usa o bot que encontramos para buscar o usuário
+        user = await bot.fetch_user(int(discord_id_str))
+        return user, discord_id_str
+    except discord.NotFound:
+        return None, discord_id_str # Retorna o ID do Discord mesmo se o usuário não for encontrado
+    except Exception as e:
+        print(f"Erro ao buscar usuário {discord_id_str}: {e}")
+        return None, discord_id_str
 
-    # Verifica se a interação aconteceu em um servidor para tentar pegar o 'member'
-    if interaction.guild:
-        user = interaction.guild.get_member(int(discord_id_str))
-    
-    # Se não encontrou (ou se foi em DM), busca globalmente
-    if not user:
-        try:
-            # Usa interaction.client em vez de ctx.bot
-            user = await interaction.client.fetch_user(int(discord_id_str))
-        except discord.NotFound:
-            return None, None
 
-    return user, discord_id_str
-
-def get_player_game_id(discord_id_str: str) -> int | None:
-    """Busca no Firebase e retorna o ID de Jogo de um jogador."""
-    player_ref = db.collection('players').document(discord_id_str)
+def get_player_game_id(user_id: str) -> int | None:
+    """Busca o game_id de um jogador a partir do seu discord_id."""
+    player_ref = db.collection('players').document(user_id)
     player_doc = player_ref.get()
     if player_doc.exists:
         return player_doc.to_dict().get('game_id')

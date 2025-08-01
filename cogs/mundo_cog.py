@@ -21,6 +21,7 @@ from utils.converters import get_player_game_id
 from cogs.item_cog import get_and_increment_item_id
 from game.motor_combate import processar_acao_em_grupo, processar_turno_monstro_em_grupo
 from game.leveling_system import grant_xp
+from utils.notification_helper import send_dm
 
 
 def criar_barra_status(atual: int, maximo: int, cor_cheia: str, tamanho: int = 10) -> str:
@@ -304,6 +305,7 @@ def criar_barra_status(atual: int, maximo: int, cor_cheia: str, tamanho: int = 1
         await interaction.response.send_message("O uso de itens em batalha será implementado em breve!", ephemeral=True)"""
         
 # --- A VERSÃO FINAL E CORRIGIDA DA BATTLEVIEW ---
+# --- A VERSÃO FINAL E COMPLETA DA BATTLEVIEW ---
 class BattleView(ui.View):
     def __init__(self, bot: commands.Bot, jogadores_data: list, monstros_data: list, tier: int = 1):
         super().__init__(timeout=300)
@@ -317,41 +319,71 @@ class BattleView(ui.View):
         self.combatente_atual = None
         self.estado = "INICIANDO"
         self.habilidade_selecionada = None
-        self.log_batalha = f"Uma batalha começou!"
+        self.log_batalha = "Uma batalha começou!"
         self.message: discord.Message = None
-        self._configurar_botoes_para_turno()
+        
+        # --- LÓGICA DO TIMER ATUALIZADA ---
+        self.timer_task = None
+        self.turno_iniciado_em = None # Guarda o timestamp do início do turno do jogador
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if self.combatente_atual in self.jogadores and interaction.user.id != self.combatente_atual.get('id'):
+            await interaction.response.send_message("Não é o seu turno para agir!", ephemeral=True)
+            return False
+        # O timer agora é cancelado DENTRO das funções de ação
+        return True
+
+    def _iniciar_timer_turno(self):
+        if self.timer_task:
+            self.timer_task.cancel()
+        
+        # Calcula o tempo restante
+        tempo_passado = asyncio.get_event_loop().time() - self.turno_iniciado_em
+        tempo_restante = max(0, 30.0 - tempo_passado)
+        
+        self.timer_task = self.bot.loop.create_task(self._task_timeout_turno(tempo_restante))
+
+    async def _task_timeout_turno(self, duracao: float):
+        await asyncio.sleep(duracao)
+        if self.is_finished():
+            return
+        self.log_batalha += "\n---\nVocê demorou demais para agir e perdeu o turno!"
+        await self.avancar_turno()
 
     async def iniciar_batalha(self):
         await self.avancar_turno()
 
     async def avancar_turno(self):
+        # ... (seu método avancar_turno completo)
         self.jogadores = [p for p in self.jogadores if p['vida_atual'] > 0]
         self.monstros = [m for m in self.monstros if m['vida_atual'] > 0]
-        
         if not self.monstros: return await self.vitoria()
         if not self.jogadores: return await self.derrota()
-
         self.ordem_de_turno = self.jogadores + self.monstros
-        
         self.combatente_atual_index = (self.combatente_atual_index + 1) % len(self.ordem_de_turno)
         self.combatente_atual = self.ordem_de_turno[self.combatente_atual_index]
-
         novo_log = f"É a vez de **{self.combatente_atual.get('nick', self.combatente_atual.get('nome'))}**."
         log_antigo = self.log_batalha.split('---')[-1].strip()
         self.log_batalha = f"{log_antigo}\n---\n{novo_log}"
-
+        
         if self.combatente_atual in self.monstros:
             self.estado = "TURNO_MONSTRO"
             await self.atualizar_mensagem_batalha()
             await asyncio.sleep(2.5)
-            
             resultado_monstro = processar_turno_monstro_em_grupo(self.combatente_atual, self.jogadores)
             self.log_batalha += "\n" + resultado_monstro.get('log', '')
-            
             await self.avancar_turno()
         else:
             self.estado = "ESCOLHENDO_ACAO"
+            # --- ATIVA O TIMER PARA O TURNO DO JOGADOR ---
+            self.turno_iniciado_em = asyncio.get_event_loop().time() # Registra o início do turno
+            self._iniciar_timer_turno()
             await self.atualizar_mensagem_batalha()
+            
+    async def on_stop(self):
+        # --- NOVO: Garante que o timer seja cancelado quando a batalha termina ---
+        if self.timer_task:
+            self.timer_task.cancel()
 
     def _configurar_botoes_para_turno(self):
         self.clear_items()
@@ -411,6 +443,7 @@ class BattleView(ui.View):
             await self.message.edit(embed=embed, view=self)
 
     async def on_skill_click(self, interaction: discord.Interaction):
+        if self.timer_task: self.timer_task.cancel() # Cancela o timer ao iniciar uma ação
         if interaction.user.id != self.combatente_atual.get('id'):
             return await interaction.response.send_message("Não é o seu turno para agir!", ephemeral=True)
         await interaction.response.defer()
@@ -434,9 +467,11 @@ class BattleView(ui.View):
             await self.avancar_turno()
         else:
             self.estado = "ESCOLHENDO_ALVO"
+            self._iniciar_timer_turno() # Reinicia o timer com o tempo restante
             await self.atualizar_mensagem_batalha()
 
     async def on_target_click(self, interaction: discord.Interaction):
+        if self.timer_task: self.timer_task.cancel() # Cancela o timer ao confirmar o alvo
         if interaction.user.id != self.combatente_atual.get('id'):
             return await interaction.response.send_message("Não é o seu turno para agir!", ephemeral=True)
         await interaction.response.defer()
@@ -460,11 +495,11 @@ class BattleView(ui.View):
         await self.avancar_turno()
 
     async def on_cancel_click(self, interaction: discord.Interaction):
-        if interaction.user.id != self.combatente_atual.get('id'):
-            return await interaction.response.send_message("Não é o seu turno para agir!", ephemeral=True)
+        if self.timer_task: self.timer_task.cancel() # Cancela o timer ao cancelar
         await interaction.response.defer()
         self.estado = "ESCOLHENDO_ACAO"
         self.habilidade_selecionada = None
+        self._iniciar_timer_turno() # Reinicia o timer com o tempo restante
         await self.atualizar_mensagem_batalha()
 
     def create_battle_embed(self) -> discord.Embed:
@@ -571,8 +606,25 @@ class BattleView(ui.View):
         individual_rewards_str = ""
         for jogador in jogadores_vivos:
             user_id_str = str(jogador['id'])
-            # Aplica XP e Moedas no banco de dados
-            grant_xp(user_id=user_id_str, amount=xp_por_jogador)
+            user_id_int = jogador['id']
+
+            # --- LÓGICA DE NOTIFICAÇÃO ADICIONADA AQUI ---
+            # Primeiro, damos o XP e pegamos o resultado
+            resultado_xp = grant_xp(user_id=user_id_str, amount=xp_por_jogador)
+            
+            # Depois, verificamos se o jogador subiu de nível
+            if resultado_xp.get("leveled_up"):
+                # Se sim, criamos um embed de level up
+                level_up_embed = discord.Embed(
+                    title="🎉 LEVEL UP! 🎉",
+                    description=f"Parabéns, **{jogador['nick']}**! Você avançou para um novo nível!",
+                    color=discord.Color.brand_green()
+                )
+                level_up_embed.add_field(name="Nível Anterior", value=f"`{resultado_xp['original_level']}`")
+                level_up_embed.add_field(name="Novo Nível", value=f"`{resultado_xp['new_level']}`")
+                
+                # E chamamos nossa nova função para enviar o aviso no privado!
+                await send_dm(self.bot, user_id_int, level_up_embed)
             db.collection('characters').document(user_id_str).update({"moedas": firestore.Increment(moedas_por_jogador)})
             
             # Monta a string para o embed
