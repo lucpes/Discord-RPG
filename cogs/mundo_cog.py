@@ -359,7 +359,7 @@ class BattleView(ui.View):
         if self.estado == "ESCOLHENDO_ACAO" and self.combatente_atual in self.jogadores:
             jogador_atual = self.combatente_atual
             
-            ataque_basico = discord.ui.Button(label="Ataque Básico", custom_id="basic_attack", emoji="🗡️")
+            ataque_basico = discord.ui.Button(label="", style=discord.ButtonStyle.secondary, custom_id="basic_attack", emoji="🗡️")
             ataque_basico.callback = self.on_skill_click
             self.add_item(ataque_basico)
 
@@ -375,6 +375,11 @@ class BattleView(ui.View):
                     if not is_passive:
                         button.callback = self.on_skill_click
                     self.add_item(button)
+                    
+            # --- ALTERAÇÃO 2: Adição do Botão Mochila ---
+            backpack_button = discord.ui.Button(label="Mochila", style=discord.ButtonStyle.secondary, emoji="🎒", custom_id="backpack")
+            backpack_button.callback = self.on_backpack_use
+            self.add_item(backpack_button)
 
         elif self.estado == "ESCOLHENDO_ALVO":
             skill_info = HABILIDADES.get(self.habilidade_selecionada, {})
@@ -389,6 +394,15 @@ class BattleView(ui.View):
             cancel_button = discord.ui.Button(label="Cancelar", style=discord.ButtonStyle.danger, custom_id="cancel_action")
             cancel_button.callback = self.on_cancel_click
             self.add_item(cancel_button)
+            
+    # --- NOVO MÉTODO DE CALLBACK PARA A MOCHILA ---
+    async def on_backpack_use(self, interaction: discord.Interaction):
+        # Verifica se é o turno do jogador que clicou
+        if interaction.user.id != self.combatente_atual.get('id'):
+            return await interaction.response.send_message("Não é o seu turno para agir!", ephemeral=True)
+            
+        # Placeholder para a funcionalidade
+        await interaction.response.send_message("A funcionalidade da mochila em combate será implementada em breve!", ephemeral=True)
 
     async def atualizar_mensagem_batalha(self):
         self._configurar_botoes_para_turno()
