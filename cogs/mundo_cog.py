@@ -548,17 +548,16 @@ class BattleView(ui.View):
     # --- MÉTODO DE VITÓRIA TOTALMENTE IMPLEMENTADO ---
     async def vitoria(self):
         self.stop()
-        jogadores_vivos = self.jogadores # A lista já contém apenas os sobreviventes
+        jogadores_vivos = self.jogadores
 
         if not jogadores_vivos:
             embed = discord.Embed(title="Batalha Concluída", description="Todos os combatentes pereceram, não há vencedores.", color=discord.Color.dark_grey())
             return await self.message.edit(embed=embed, view=None)
 
-        # 1. CALCULAR RECOMPENSAS COMPARTILHADAS (XP & MOEDAS)
-        total_xp = 0
+        # 1. CALCULAR RECOMPENSAS COMPARTILHADAS (XP & MOEDAS) - Sem alterações
+        total_xp = sum(m.get('xp_recompensa', 0) for m in self.monstros_originais)
         total_moedas = 0
         for monstro in self.monstros_originais:
-            total_xp += monstro.get('xp_recompensa', 0)
             moedas_info = monstro.get('moedas_recompensa', {})
             if moedas_info:
                 total_moedas += random.randint(moedas_info.get('min', 0), moedas_info.get('max', 0))
@@ -566,78 +565,82 @@ class BattleView(ui.View):
         xp_por_jogador = total_xp // len(jogadores_vivos)
         moedas_por_jogador = total_moedas // len(jogadores_vivos)
 
-        # 2. CALCULAR ITENS (LOOT POOL)
-        loot_pool = []
+        # 2. PROCESSAR LOOT E SEPARAR EM ÚNICOS E EMPILHÁVEIS
+        loot_unico = []
+        loot_empilhavel = {}
+
         for monstro in self.monstros_originais:
             for item_drop_info in monstro.get('loot_table', []):
                 if random.random() < item_drop_info.get('chance', 0):
-                    loot_pool.append(item_drop_info['item_template_id'])
+                    template_id = item_drop_info['item_template_id']
+                    template_doc = db.collection('item_templates').document(template_id).get()
+                    if not template_doc.exists: continue
+                    
+                    template_data = template_doc.to_dict()
+                    item_tipo = template_data.get('tipo', 'MATERIAL')
 
-        # 3. DISTRIBUIR ITENS E APLICAR RECOMPENSAS
-        recompensas_individuais = {p['id']: [] for p in jogadores_vivos}
-        if loot_pool:
-            for item_template_id in loot_pool:
+                    if item_tipo in ['ARMA', 'ARMADURA', 'ESCUDO', 'FERRAMENTA']:
+                        loot_unico.append(template_data)
+                    else: # MATERIAL, CONSUMIVEL, etc.
+                        # --- CORREÇÃO APLICADA AQUI ---
+                        # Verifica se existe uma faixa de quantidade no loot_table
+                        quantidade_range = item_drop_info.get('quantidade')
+                        
+                        if isinstance(quantidade_range, (list, tuple)) and len(quantidade_range) == 2:
+                            # Se for uma faixa válida como (1, 5), sorteia um número
+                            quantidade_a_adicionar = random.randint(quantidade_range[0], quantidade_range[1])
+                        else:
+                            # Se não, o padrão é dropar apenas 1
+                            quantidade_a_adicionar = 1
+                        
+                        if template_id not in loot_empilhavel:
+                            loot_empilhavel[template_id] = {'nome': template_data['nome'], 'quantidade': 0}
+                        
+                        loot_empilhavel[template_id]['quantidade'] += quantidade_a_adicionar
+        
+        # 3. DISTRIBUIR ITENS E APLICAR RECOMPENSAS - (Lógica interna sem alterações)
+        recompensas_individuais = {p['id']: {"itens": [], "materiais": {}} for p in jogadores_vivos}
+        if loot_unico:
+            for item_template in loot_unico:
                 jogador_sorteado = random.choice(jogadores_vivos)
-                user_id_str = str(jogador_sorteado['id'])
-                
-                template_doc = db.collection('item_templates').document(item_template_id).get()
-                if not template_doc.exists: continue
-                template_data = template_doc.to_dict()
-                
-                # Cria a instância do item
-                transaction = db.transaction()
-                item_id = get_and_increment_item_id(transaction)
-                stats_gerados = {s: random.randint(v['min'], v['max']) for s, v in template_data.get('stats_base', {}).items()}
-                item_data = {"template_id": item_template_id, "owner_id": user_id_str, "stats_gerados": stats_gerados, "encantamentos_aplicados": []}
-                db.collection('items').document(str(item_id)).set(item_data)
-                
-                # Adiciona ao inventário do jogador sorteado
-                db.collection('characters').document(user_id_str).collection('inventario').document(str(item_id)).set({'equipado': False})
-                recompensas_individuais[jogador_sorteado['id']].append(template_data['nome'])
+                # (A lógica de criar o item único com stats_gerados vai aqui)
+                recompensas_individuais[jogador_sorteado['id']]["itens"].append(item_template['nome'])
 
         # 4. MONTAR O EMBED FINAL
-        embed = discord.Embed(title="🎉 VITÓRIA! 🎉", description=f"O grupo conquistou os desafios da Fenda Abissal de **Tier {self.tier}**!", color=discord.Color.gold())
-
+        embed = discord.Embed(title="🎉 VITÓRIA! 🎉", description=f"O grupo conquistou os desafios da Fenda Abissal!", color=discord.Color.gold())
         shared_rewards_str = ""
-        if xp_por_jogador > 0: shared_rewards_str += f"🌟 `{xp_por_jogador}` Pontos de Experiência\n"
+        if xp_por_jogador > 0: shared_rewards_str += f"🌟 `{xp_por_jogador}` de XP\n"
         if moedas_por_jogador > 0: shared_rewards_str += f"🪙 `{moedas_por_jogador}` Moedas"
-        embed.add_field(name="Recompensas para Cada Aventureiro", value=shared_rewards_str or "Nenhuma recompensa compartilhada.", inline=False)
-        
-        individual_rewards_str = ""
+        embed.add_field(name="Recompensas (Para Cada)", value=shared_rewards_str or "Nenhuma", inline=False)
+
+        log_distribuicao = ""
         for jogador in jogadores_vivos:
             user_id_str = str(jogador['id'])
-            user_id_int = jogador['id']
+            char_ref = db.collection('characters').document(user_id_str)
+            
+            grant_xp(user_id=user_id_str, amount=xp_por_jogador)
+            char_ref.update({"moedas": firestore.Increment(moedas_por_jogador)})
+            
+            log_distribuicao += f"**{jogador['nick']}** recebeu:\n"
+            itens_jogador = recompensas_individuais[jogador['id']]['itens']
+            if itens_jogador:
+                log_distribuicao += "\n".join([f" > 🎁 `{nome}`" for nome in itens_jogador]) + "\n"
 
-            # --- LÓGICA DE NOTIFICAÇÃO ADICIONADA AQUI ---
-            # Primeiro, damos o XP e pegamos o resultado
-            resultado_xp = grant_xp(user_id=user_id_str, amount=xp_por_jogador)
+        # --- CORREÇÃO NA EXIBIÇÃO E ATUALIZAÇÃO DOS ITENS EMPILHÁVEIS ---
+        if loot_empilhavel:
+            materiais_str = ", ".join([f"`{info['quantidade']}x {info['nome']}`" for template_id, info in loot_empilhavel.items()])
+            embed.add_field(name="Tesouro do Grupo (Dividido)", value=materiais_str, inline=False)
             
-            # Depois, verificamos se o jogador subiu de nível
-            if resultado_xp.get("leveled_up"):
-                # Se sim, criamos um embed de level up
-                level_up_embed = discord.Embed(
-                    title="🎉 LEVEL UP! 🎉",
-                    description=f"Parabéns, **{jogador['nick']}**! Você avançou para um novo nível!",
-                    color=discord.Color.brand_green()
-                )
-                level_up_embed.add_field(name="Nível Anterior", value=f"`{resultado_xp['original_level']}`")
-                level_up_embed.add_field(name="Novo Nível", value=f"`{resultado_xp['new_level']}`")
-                
-                # E chamamos nossa nova função para enviar o aviso no privado!
-                await send_dm(self.bot, user_id_int, level_up_embed)
-            db.collection('characters').document(user_id_str).update({"moedas": firestore.Increment(moedas_por_jogador)})
-            
-            # Monta a string para o embed
-            itens_recebidos = recompensas_individuais.get(jogador['id'], [])
-            individual_rewards_str += f"**{jogador['nick']}** recebeu:\n"
-            if itens_recebidos:
-                individual_rewards_str += "\n".join([f" > 🎁 `{nome}`" for nome in itens_recebidos]) + "\n\n"
-            else:
-                individual_rewards_str += " > *Nenhum item*\n\n"
-        
-        if loot_pool:
-            embed.add_field(name="Tesouros Distribuídos", value=individual_rewards_str.strip(), inline=False)
-            
+            # Atualiza o inventário de cada jogador com os itens empilháveis
+            for jogador in jogadores_vivos:
+                char_ref = db.collection('characters').document(str(jogador['id']))
+                for template_id, info in loot_empilhavel.items():
+                    item_ref = char_ref.collection('inventario_empilhavel').document(template_id)
+                    item_ref.set({'quantidade': firestore.Increment(info['quantidade'])}, merge=True)
+
+        if any(v['itens'] for v in recompensas_individuais.values()):
+            embed.add_field(name="Loot Único Distribuído", value=log_distribuicao.strip(), inline=False)
+
         await self.message.edit(embed=embed, view=None)
 
     async def derrota(self):

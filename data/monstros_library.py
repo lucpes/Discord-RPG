@@ -17,6 +17,7 @@ MONSTROS = {
         "loot_table": [
             # Um item pode ter uma chance de dropar
             {"item_template_id": "adaga_agil", "chance": 0.1}, # 10% de chance
+            {"item_template_id": "minerio_ferro", "chance": 1, "quantidade": (1, 5)} # 90% de chance de dropar de 1 a 5 moedas
             # Outro item pode ter quantidade variável
             #{"item_template_id": "moeda_cobre", "chance": 0.9, "quantidade": (1, 5)} # 90% de chance de dropar de 1 a 5 moedas
         ]
@@ -36,6 +37,7 @@ MONSTROS = {
         "loot_table": [
             # Um item pode ter uma chance de dropar
             {"item_template_id": "adaga_agil", "chance": 0.1}, # 10% de chance
+            {"item_template_id": "minerio_ferro", "chance": 1, "quantidade": (1, 5)} # 90% de chance de dropar de 1 a 5 moedas
             # Outro item pode ter quantidade variável
             #{"item_template_id": "moeda_cobre", "chance": 0.9, "quantidade": (1, 5)} # 90% de chance de dropar de 1 a 5 moedas
         ]
@@ -53,6 +55,7 @@ MONSTROS = {
         "xp_recompensa": 25,
         "loot_table": [
             {"item_template_id": "adaga_agil", "chance": 0.1}, # 10% de chance
+            {"item_template_id": "minerio_ferro", "chance": 1, "quantidade": (1, 5)} # 90% de chance de dropar de 1 a 5 moedas
             #{"item_template_id": "pele_de_lobo", "chance": 0.7},      # 70% de chance
             #{"item_template_id": "dente_de_lobo", "chance": 0.25}     # 25% de chance
         ],
@@ -72,6 +75,7 @@ MONSTROS = {
         "moedas_recompensa": {"min": 5, "max": 20}, # Sorteia um valor entre 5 e 20 moedas
         "loot_table": [
             {"item_template_id": "adaga_agil", "chance": 0.1}, # 10% de chance
+            {"item_template_id": "minerio_ferro", "chance": 1, "quantidade": (1, 5)} # 90% de chance de dropar de 1 a 5 moedas
             #{"item_template_id": "gosma_verde", "chance": 1.0, "quantidade": (1, 2)} # Sempre dropa (100%)
         ]
     },
@@ -88,6 +92,7 @@ MONSTROS = {
         "xp_recompensa": 40,
         "loot_table": [
             {"item_template_id": "adaga_agil", "chance": 0.1}, # 10% de chance
+            {"item_template_id": "minerio_ferro", "chance": 1, "quantidade": (1, 5)} # 90% de chance de dropar de 1 a 5 moedas
             #{"item_template_id": "espada_ferro_comum", "chance": 0.1}, # 10% de chance
             #{"item_template_id": "fragmento_osso", "chance": 0.8}
         ],
@@ -106,6 +111,7 @@ MONSTROS = {
         "xp_recompensa": 40,
         "loot_table": [
             {"item_template_id": "adaga_agil", "chance": 0.1}, # 10% de chance
+            {"item_template_id": "minerio_ferro", "chance": 1, "quantidade": (1, 5)} # 90% de chance de dropar de 1 a 5 moedas
             #{"item_template_id": "espada_ferro_comum", "chance": 0.1}, # 10% de chance
             #{"item_template_id": "fragmento_osso", "chance": 0.8}
         ],

@@ -1,15 +1,14 @@
 # upload_templates.py
 
-# Importa a configuração do nosso banco de dados
 from firebase_config import db
 
 print("Iniciando upload de templates de itens para o Firebase...")
 
-# --- DEFINA AQUI TODOS OS TEMPLATES DE ITENS QUE VOCÊ QUER ENVIAR ---
-# A chave do dicionário será o ID do documento no Firebase.
 TEMPLATES_PARA_UPLOAD = {
+    # --- EQUIPAMENTOS ---
     "espada_guerreira_raro": {
         "nome": "Espada Longa do Guerreiro",
+        "emote": "⚔️",
         "tipo": "ARMA",
         "classe": "Guerreiro",
         "raridade": "RARO",
@@ -22,6 +21,7 @@ TEMPLATES_PARA_UPLOAD = {
     },
     "adaga_agil": {
         "nome": "Adaga Ágil",
+        "emote": "🗡️",
         "tipo": "ARMA",
         "classe": ["Assassino", "Goblin"],
         "raridade": "INCOMUM",
@@ -34,6 +34,7 @@ TEMPLATES_PARA_UPLOAD = {
     },
     "cajado_aprendiz": {
         "nome": "Cajado de Aprendiz",
+        "emote": "🪄",
         "tipo": "ARMA",
         "classe": "Mago",
         "raridade": "COMUM",
@@ -45,6 +46,7 @@ TEMPLATES_PARA_UPLOAD = {
     },
     "escudo_madeira": {
         "nome": "Escudo de Madeira",
+        "emote": "🛡️",
         "tipo": "ESCUDO",
         "raridade": "COMUM",
         "slot": "MAO_SECUNDARIA",
@@ -56,6 +58,7 @@ TEMPLATES_PARA_UPLOAD = {
     },
     "peitoral_couro": {
         "nome": "Peitoral de Couro",
+        "emote": "🎽",
         "tipo": "ARMADURA",
         "raridade": "COMUM",
         "slot": "PEITORAL",
@@ -66,14 +69,66 @@ TEMPLATES_PARA_UPLOAD = {
             "VIDA_MAXIMA": { "min": 15, "max": 25 },
             "MANA_MAXIMA": { "min": 100, "max": 100 }
         }
-    }
+    },
+    
+    # --- MATERIAIS DE CRAFTING ---
+    "pele_de_lobo": {
+        "nome": "Pele de Lobo",
+        "emote": "🐺",
+        "tipo": "MATERIAL",
+        "raridade": "COMUM",
+        "descricao": "Uma pele resistente, usada em armaduras de couro e outros artesanatos."
+    },
+    "minerio_ferro": {
+        "nome": "Minério de Ferro",
+        "emote": "🪨",
+        "tipo": "MATERIAL",
+        "raridade": "INCOMUM",
+        "descricao": "Uma rocha rica em ferro, pronta para ser refinada em uma forja."
+    },
+    
+    # --- FERRAMENTAS ---
+    "picareta_ferro": {
+        "nome": "Picareta de Ferro",
+        "emote": "⛏️",
+        "tipo": "FERRAMENTA",
+        "raridade": "INCOMUM",
+        "slot": "FERRAMENTA_PRINCIPAL",
+        "descricao": "Permite a mineração de veios de ferro e outros minerais.",
+        "atributos_ferramenta": {
+            "poder_coleta": 15,
+            "durabilidade_max": 100
+        }
+    },
+    "machado_lenhador": {
+        "nome": "Machado de Lenhador",
+        "emote": "🪓",
+        "tipo": "FERRAMENTA",
+        "raridade": "COMUM",
+        "slot": "FERRAMENTA_PRINCIPAL",
+        "descricao": "Ideal para derrubar árvores e coletar madeira.",
+        "atributos_ferramenta": {
+            "poder_coleta": 10,
+            "durabilidade_max": 80
+        }
+    },
+
+    # --- CONSUMÍVEIS (POÇÕES) ---
+    "pocao_vida_pequena": {
+        "nome": "Poção de Vida Pequena",
+        "emote": "🧪",
+        "tipo": "CONSUMIVEL",
+        "raridade": "COMUM",
+        "descricao": "Restaura instantaneamente uma pequena quantidade de vida.",
+        "efeito_consumo": {
+            "CURA_VIDA": 50
+        }
+    },
 }
 
 # --- O SCRIPT DE UPLOAD ---
-# Este loop vai percorrer cada item e enviá-lo para o Firebase
 for doc_id, data in TEMPLATES_PARA_UPLOAD.items():
     try:
-        # Pega a referência do documento e usa .set() para criar/sobrescrever
         doc_ref = db.collection('item_templates').document(doc_id)
         doc_ref.set(data)
         print(f"✅ Template '{doc_id}' enviado com sucesso!")

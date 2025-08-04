@@ -43,7 +43,7 @@ class TasksCog(commands.Cog):
                 print(f"❌ Erro ao processar construção finalizada para a cidade {doc.id}: {e}")
 
     # --- NOVA TAREFA PARA O PORTAL ABISSAL ---
-    @tasks.loop(seconds=20.0) # Roda a cada 5 minutos
+    @tasks.loop(hours=1) # Roda a cada 10 minutos
     async def verificar_portais_abissais(self):
         now = datetime.now(timezone.utc)
         cidades_ref = db.collection('cidades').stream()
