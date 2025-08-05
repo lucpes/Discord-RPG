@@ -93,11 +93,15 @@ TEMPLATES_PARA_UPLOAD = {
         "emote": "⛏️",
         "tipo": "FERRAMENTA",
         "raridade": "INCOMUM",
-        "slot": "FERRAMENTA_PRINCIPAL",
+        "slot": "PICARETA",
+        "slots_encantamento": 0,
         "descricao": "Permite a mineração de veios de ferro e outros minerais.",
         "atributos_ferramenta": {
-            "poder_coleta": 15,
-            "durabilidade_max": 100
+            "nivel_mineração": 2,
+            "poder_coleta": 0.25,
+            "eficiencia": 0.15,
+            "durabilidade_max": 250,
+            "fortuna": 0
         }
     },
     "machado_lenhador": {
@@ -105,11 +109,15 @@ TEMPLATES_PARA_UPLOAD = {
         "emote": "🪓",
         "tipo": "FERRAMENTA",
         "raridade": "COMUM",
-        "slot": "FERRAMENTA_PRINCIPAL",
+        "slot": "MACHADO",
+        "slots_encantamento": 0,
         "descricao": "Ideal para derrubar árvores e coletar madeira.",
         "atributos_ferramenta": {
-            "poder_coleta": 10,
-            "durabilidade_max": 80
+            "nivel_mineração": 2,
+            "poder_coleta": 0.25,
+            "eficiencia": 0.15,
+            "durabilidade_max": 250,
+            "fortuna": 0
         }
     },
 

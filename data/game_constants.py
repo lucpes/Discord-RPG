@@ -13,6 +13,8 @@ EQUIPMENT_SLOTS = OrderedDict([
     ("COLAR",    {"display": "Colar",    "emoji": "📿"}),
     ("RUNA_1",   {"display": "Runa 1",   "emoji": "🌀"}),
     ("RUNA_2",   {"display": "Runa 2",   "emoji": "🌀"}),
+    ("PICARETA", {"display": "Picareta", "emoji": "⛏️"}), # ADICIONE ESTA LINHA
+    ("MACHADO", {"display": "Machado", "emoji": "🪓"}),   # ADICIONE ESTA L
 ])
 
 # Dicionário de emojis para cada raridade

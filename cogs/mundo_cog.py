@@ -22,6 +22,7 @@ from cogs.item_cog import get_and_increment_item_id
 from game.motor_combate import processar_acao_em_grupo, processar_turno_monstro_em_grupo
 from game.leveling_system import grant_xp
 from utils.notification_helper import send_dm
+from ui.views import MiningView
 
 
 def criar_barra_status(atual: int, maximo: int, cor_cheia: str, tamanho: int = 10) -> str:
@@ -962,6 +963,59 @@ class MundoCog(commands.Cog):
                 await interaction.response.send_message(content, ephemeral=True)
             # Também é uma boa ideia logar o erro completo no console para você ver
             print(f"Erro no comando /governar: {error}")
+            
+            
+    @app_commands.command(name="mina", description="Acesse a área de mineração para coletar recursos.")
+    async def mina(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        user_id_str = str(interaction.user.id)
+
+        char_ref = db.collection('characters').document(user_id_str)
+        char_doc = char_ref.get()
+        cidade_ref = db.collection('cidades').document(str(interaction.guild.id))
+        cidade_doc = cidade_ref.get()
+
+        if not char_doc.exists:
+            await interaction.followup.send("Você precisa ter um personagem para minerar. Use `/perfil`.", ephemeral=True)
+            return
+        if not cidade_doc.exists:
+            await interaction.followup.send("A cidade ainda não foi fundada. A mineração não está disponível.", ephemeral=True)
+            return
+
+        char_data = char_doc.to_dict()
+        cidade_data = cidade_doc.to_dict()
+        
+        equipped_items = {}
+        # --- CORREÇÃO APLICADA AQUI ---
+        # Alterado de 'inventario_unico' para 'inventario' para corresponder à sua estrutura atual
+        inventory_snapshot = char_ref.collection('inventario').where('equipado', '==', True).stream()
+        
+        for item_ref in inventory_snapshot:
+            item_id = item_ref.id
+            instance_doc = db.collection('items').document(item_id).get()
+            if not instance_doc.exists: continue
+            
+            instance_data = instance_doc.to_dict()
+            template_id = instance_data.get('template_id')
+            template_doc = db.collection('item_templates').document(template_id).get()
+            if not template_doc.exists: continue
+
+            template_data = template_doc.to_dict()
+            slot = template_data.get('slot')
+            
+            if slot:
+                equipped_items[slot] = {
+                    "id": item_id,
+                    "instance_data": instance_data,
+                    "template_data": template_data
+                }
+        
+        # Para depuração: veja no seu console o que está sendo carregado
+        print(f"DEBUG para {interaction.user.name}: Itens Equipados: {list(equipped_items.keys())}")
+        
+        view = MiningView(author=interaction.user, char_data=char_data, cidade_data=cidade_data, equipped_items=equipped_items)
+        embed = view.create_embed()
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         
 
 async def setup(bot: commands.Bot):

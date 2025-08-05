@@ -19,6 +19,7 @@ from utils.converters import find_player_by_game_id
 from data.dungeon_monsters import TIER_MONSTERS # NOVO IMPORT
 from data.monstros_library import MONSTROS
 from game.stat_calculator import calcular_stats_completos
+from data.minas_library import MINAS
 
 # ---------------------------------------------------------------------------------
 # VIEW DO PERFIL
@@ -103,6 +104,7 @@ class InventarioView(ui.View):
         embed.set_thumbnail(url=self.user.display_avatar.url)
         armor_slots, accessory_slots, rune_slots = ["CAPACETE", "PEITORAL", "CALCA", "BOTA"], ["MAO_PRINCIPAL", "MAO_SECUNDARIA", "ANEL", "COLAR"], ["RUNA_1", "RUNA_2"]
         armor_str, accessory_str, rune_str = "", "", ""
+        tool_slots = ["PICARETA", "MACHADO"]
         for slot_id in armor_slots:
             slot_info = EQUIPMENT_SLOTS[slot_id]
             item = self.equipped_items.get(slot_id)
@@ -118,6 +120,15 @@ class InventarioView(ui.View):
             item = self.equipped_items.get(slot_id)
             rune_str += f"{slot_info['emoji']} {self.format_item_line(item) if item else '— *Vazio*'}\n"
         embed.add_field(name="Runas", value=rune_str, inline=False)
+        tool_str = ""
+        for slot_id in tool_slots:
+            slot_info = EQUIPMENT_SLOTS.get(slot_id)
+            if not slot_info: continue # Ignora se o slot não estiver em game_constants
+            item = self.equipped_items.get(slot_id)
+            tool_str += f"{slot_info['emoji']} **{slot_info['display']}:** " + (f"{self.format_item_line(item)}\n" if item else "*Vazio*\n")
+        
+        if tool_str:
+             embed.add_field(name="Ferramentas", value=tool_str, inline=False)
         if not self.backpack_items:
             embed.add_field(name="🎒 Mochila", value="Sua mochila está vazia.", inline=False)
         else:
@@ -737,3 +748,215 @@ class PortalAbertoView(ui.View):
             portal_ref.update({lobby_path: novo_lobby_data})
             
             await interaction.followup.send(f"Você criou um lobby para a Fenda de Tier {tier}!", ephemeral=True)
+            
+# --- VIEW DE MINERAÇÃO COMPLETA E FUNCIONAL ---
+class MiningView(ui.View):
+    def __init__(self, author: discord.User, char_data: dict, cidade_data: dict, equipped_items: dict):
+        super().__init__(timeout=300)
+        self.author = author
+        self.char_data = char_data
+        self.cidade_data = cidade_data
+        self.equipped_items = equipped_items # Guarda os itens equipados
+        
+        self.update_view()
+
+    def update_view(self):
+        """Atualiza a view com base no estado de mineração do jogador."""
+        self.clear_items()
+        mining_status = self.char_data.get('mineração_ativa', {})
+
+        if not mining_status:
+            self.add_item(self.create_mine_select())
+        else:
+            termina_em = mining_status.get('termina_em')
+            if datetime.now(timezone.utc) >= termina_em:
+                collect_button = ui.Button(label="Coletar Recompensas", style=discord.ButtonStyle.success, emoji="🎉")
+                collect_button.callback = self.collect_rewards
+                self.add_item(collect_button)
+
+    def create_mine_select(self) -> ui.Select:
+        """Cria o menu de seleção com as minas disponíveis."""
+        nivel_mina_cidade = self.cidade_data.get('construcoes', {}).get('MINA', {}).get('nivel', 0)
+        
+        options = []
+        for mine_id, mine_info in MINAS.items():
+            if mine_info['nivel_minimo_edificio'] <= nivel_mina_cidade:
+                options.append(discord.SelectOption(
+                    label=mine_info['nome'], value=mine_id,
+                    description=f"Tempo: {timedelta(seconds=mine_info['tempo_s'])}"
+                ))
+
+        if not options:
+            return ui.Select(placeholder="Nenhuma mina disponível para o nível da cidade.", disabled=True)
+        
+        select = ui.Select(placeholder="Selecione uma mina para começar...", options=options)
+        select.callback = self.start_mining
+        return select
+
+    async def start_mining(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        mine_id = interaction.data['values'][0]
+        mine_info = MINAS[mine_id]
+
+        picareta_equipada = self.equipped_items.get("PICARETA")
+        if not picareta_equipada:
+            await interaction.followup.send("❌ Você precisa ter uma picareta equipada para minerar!", ephemeral=True)
+            return
+
+        # --- VERIFICAÇÃO DE DURABILIDADE ADICIONADA ---
+        instance_data = picareta_equipada.get('instance_data', {})
+        durabilidade_atual = instance_data.get('durabilidade_atual', 0)
+        
+        if durabilidade_atual <= 0:
+            await interaction.followup.send("❌ Sua picareta está quebrada e precisa de reparos!", ephemeral=True)
+            return
+
+        atributos_picareta = picareta_equipada['template_data'].get('atributos_ferramenta', {})
+        nivel_requerido = mine_info.get('nivel_picareta', 1)
+        nivel_picareta_jogador = atributos_picareta.get('nivel_mineração', 0)
+
+        if nivel_picareta_jogador < nivel_requerido:
+            await interaction.followup.send(f"❌ Sua picareta não tem o nível necessário! Esta mina requer nível `{nivel_requerido}`, mas sua ferramenta é nível `{nivel_picareta_jogador}`.", ephemeral=True)
+            return
+            
+        # Se todas as verificações passaram, inicia a mineração
+        eficiencia = atributos_picareta.get('eficiencia', 0)
+        tempo_base_s = mine_info['tempo_s']
+        tempo_final_s = tempo_base_s * (1 - eficiencia)
+        termina_em = datetime.now(timezone.utc) + timedelta(seconds=tempo_final_s)
+
+        char_ref = db.collection('characters').document(str(self.author.id))
+        char_ref.update({
+            'mineração_ativa': {
+                'mina_id': mine_id,
+                'inicia_em': firestore.SERVER_TIMESTAMP,
+                'termina_em': termina_em
+            }
+        })
+        
+        self.char_data['mineração_ativa'] = {'termina_em': termina_em}
+        self.update_view()
+        embed = self.create_embed()
+        await interaction.edit_original_response(embed=embed, view=self)
+
+    async def collect_rewards(self, interaction: discord.Interaction):
+        """Coleta as recompensas da mineração, calcula o loot e a durabilidade."""
+        await interaction.response.defer()
+        user_id_str = str(self.author.id)
+        char_ref = db.collection('characters').document(user_id_str)
+        
+        mining_status = self.char_data.get('mineração_ativa', {})
+        mine_id = mining_status.get('mina_id')
+        if not mine_id: return
+
+        mine_info = MINAS[mine_id]
+        
+        # --- CORREÇÃO APLICADA AQUI ---
+        # Pega os bônus da picareta a partir do 'template_data'
+        picareta_equipada = self.equipped_items.get("PICARETA")
+        atributos_picareta = picareta_equipada['template_data'].get('atributos_ferramenta', {}) if picareta_equipada else {}
+        
+        poder_coleta = atributos_picareta.get('poder_coleta', 0)
+        fortuna = atributos_picareta.get('fortuna', 0)
+
+        # Calcula o loot final
+        recompensas_coletadas = {}
+        for item_info in mine_info['loot_table']:
+            chance_final = item_info['chance_base'] * (1 + poder_coleta)
+            if random.random() < chance_final:
+                quantidade_range = item_info['quantidade']
+                quantidade_base = random.randint(quantidade_range[0], quantidade_range[1])
+                quantidade_final = quantidade_base + fortuna
+                
+                template_id = item_info['template_id']
+                if quantidade_final > 0:
+                    recompensas_coletadas[template_id] = recompensas_coletadas.get(template_id, 0) + quantidade_final
+
+        # Atualiza o inventário empilhável no Firebase
+        if recompensas_coletadas:
+            batch = db.batch()
+            for template_id, quantidade in recompensas_coletadas.items():
+                item_ref = char_ref.collection('inventario_empilhavel').document(template_id)
+                batch.set(item_ref, {'quantidade': firestore.Increment(quantidade)}, merge=True)
+            batch.commit()
+
+        # Lida com a durabilidade da picareta
+        if picareta_equipada:
+            item_id = picareta_equipada['id']
+            item_ref = db.collection('items').document(item_id)
+            item_ref.update({'durabilidade_atual': firestore.Increment(-1)})
+
+        # Limpa o estado de mineração
+        char_ref.update({'mineração_ativa': firestore.DELETE_FIELD})
+        
+        # Atualiza a interface
+        self.char_data['mineração_ativa'] = {}
+        self.update_view()
+        embed = self.create_embed()
+        
+        # Monta a mensagem de sucesso
+        recompensas_str = "\n".join([f" > `{qtd}x` {db.collection('item_templates').document(tid).get().to_dict()['nome']}" for tid, qtd in recompensas_coletadas.items()])
+        await interaction.followup.send(
+            embed=discord.Embed(
+                title="✨ Recompensas Coletadas!",
+                description=recompensas_str or "Você não encontrou nada de especial desta vez.",
+                color=discord.Color.green()
+            ),
+            ephemeral=True
+        )
+        await interaction.edit_original_response(embed=embed, view=self)
+
+    def create_embed(self) -> discord.Embed:
+        """Cria o embed com base no estado de mineração do jogador."""
+        mining_status = self.char_data.get('mineração_ativa', {})
+        
+        if not mining_status:
+            # Embed para o estado "Livre"
+            embed = discord.Embed(
+                title="⛏️ Central de Mineração",
+                description="Selecione uma mina disponível para começar a extrair recursos.",
+                color=discord.Color.dark_gray()
+            )
+            embed.set_footer(text="O nível da Mina da sua cidade libera novos locais.")
+        else:
+            termina_em = mining_status.get('termina_em')
+            if datetime.now(timezone.utc) >= termina_em:
+                # Embed para o estado "Pronto para Coletar"
+                embed = discord.Embed(
+                    title="🎉 Mineração Concluída! 🎉",
+                    description="Seus recursos estão prontos para serem coletados! Clique no botão abaixo.",
+                    color=discord.Color.gold()
+                )
+            else:
+                # Embed para o estado "Minerando"
+                embed = discord.Embed(
+                    title="⛏️ Minerando...",
+                    description=f"Você está trabalhando duro na extração de recursos. Volte mais tarde para coletar.\n\n**Conclusão em:** <t:{int(termina_em.timestamp())}:R>",
+                    color=discord.Color.orange()
+                )
+        
+        # --- EXIBIÇÃO DA DURABILIDADE CORRIGIDA ---
+        picareta_equipada = self.equipped_items.get("PICARETA")
+        if picareta_equipada:
+            template_data = picareta_equipada['template_data']
+            instance_data = picareta_equipada['instance_data']
+            
+            # Busca a durabilidade atual da instância do item
+            atributos_template = template_data.get('atributos_ferramenta', {})
+            dur_max = atributos_template.get('durabilidade_max', 1)
+            # Se 'durabilidade_atual' não existir na instância, usa a máxima do template
+            dur_atual = instance_data.get('durabilidade_atual', dur_max)
+
+            embed.add_field(
+                name="Ferramenta Equipada",
+                value=f"{template_data.get('emote', '⛏️')} **{template_data.get('nome')}**\n`Durabilidade: {dur_atual}/{dur_max}`",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="Ferramenta Equipada",
+                value="Você não tem uma picareta equipada!",
+                inline=False
+            )
+            
+        return embed

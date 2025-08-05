@@ -40,6 +40,13 @@ class AdminCog(commands.Cog):
         item_id = get_and_increment_item_id(transaction)
         item_ref = db.collection('items').document(str(item_id))
         item_data = {"template_id": template_id, "owner_id": alvo_id_str, "stats_gerados": stats_gerados, "encantamentos_aplicados": []}
+        # --- LÓGICA DE DURABILIDADE ADICIONADA AQUI ---
+        if template_data.get("tipo") == "FERRAMENTA":
+            atributos = template_data.get("atributos_ferramenta", {})
+            durabilidade_max = atributos.get("durabilidade_max", 100)
+            # Define a durabilidade atual igual à máxima no momento da criação
+            item_data["durabilidade_atual"] = durabilidade_max
+            
         item_ref.set(item_data)
         inventory_ref = db.collection('characters').document(alvo_id_str).collection('inventario').document(str(item_id))
         inventory_ref.set({'equipado': False})
