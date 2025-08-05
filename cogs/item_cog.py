@@ -32,8 +32,7 @@ class ItemCog(commands.Cog):
     async def equipar(self, interaction: discord.Interaction, item_id: int):
         await interaction.response.defer(ephemeral=True)
         user_id = str(interaction.user.id)
-
-        # 1. Verificar se o item existe e se pertence ao jogador
+        char_ref = db.collection('characters').document(user_id)
         item_ref = db.collection('items').document(str(item_id))
         item_doc = item_ref.get()
 
@@ -42,17 +41,13 @@ class ItemCog(commands.Cog):
             return
         
         item_data = item_doc.to_dict()
-        
-        # 2. Buscar dados do template e do personagem para a verificação
         template_ref = db.collection('item_templates').document(item_data['template_id'])
         template_doc = template_ref.get()
         template_data = template_doc.to_dict()
         
-        char_ref = db.collection('characters').document(user_id)
         char_doc = char_ref.get()
         char_data = char_doc.to_dict()
 
-        # 3. A VERIFICAÇÃO DE CLASSE AGORA ACONTECE AQUI!
         item_class_req = template_data.get('classe')
         if item_class_req:
             player_class = char_data.get('classe')
@@ -67,19 +62,28 @@ class ItemCog(commands.Cog):
                 )
                 return
 
-        # 4. Desequipar item antigo no mesmo slot (se houver)
         item_slot = template_data.get('slot')
         if item_slot:
-            inventory_snapshot = db.collection('characters').document(user_id).collection('inventario').where('equipado', '==', True).stream()
-            for old_item_ref in inventory_snapshot:
-                old_item_doc = db.collection('items').document(old_item_ref.id).get()
+            # --- CORREÇÃO APLICADA AQUI ---
+            # Procura o item antigo na coleção correta: 'inventario_equipamentos'
+            inventory_snapshot = char_ref.collection('inventario_equipamentos').where('equipado', '==', True).stream()
+            
+            for old_item_doc_ref in inventory_snapshot:
+                old_item_doc = db.collection('items').document(old_item_doc_ref.id).get()
+                if not old_item_doc.exists: continue
+                
                 old_template_doc = db.collection('item_templates').document(old_item_doc.to_dict()['template_id']).get()
+                if not old_template_doc.exists: continue
+                
                 if old_template_doc.to_dict().get('slot') == item_slot:
-                    old_item_ref.reference.update({'equipado': False}) # Desequipa o item antigo
+                    # Desequipa o item antigo
+                    old_item_doc_ref.reference.update({'equipado': False})
                     await interaction.followup.send(f"ℹ️ Item '{old_template_doc.to_dict()['nome']}' foi desequipado automaticamente.", ephemeral=True)
+                    break # Para o loop assim que encontrar e desequipar o item
 
-        # 5. Equipar o novo item
-        inventory_ref = db.collection('characters').document(user_id).collection('inventario').document(str(item_id))
+        # --- CORREÇÃO APLICADA AQUI ---
+        # Atualiza o novo item na coleção correta: 'inventario_equipamentos'
+        inventory_ref = char_ref.collection('inventario_equipamentos').document(str(item_id))
         inventory_ref.update({'equipado': True})
 
         await interaction.followup.send(f"✅ Você equipou **{template_data['nome']}** com sucesso!", ephemeral=True)

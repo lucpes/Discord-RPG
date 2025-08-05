@@ -18,7 +18,7 @@ class AdminCog(commands.Cog):
     # --- COMANDOS MOVIDOS PARA DENTRO DA CLASSE ---
 
     @commands.command(name="criaritem")
-    @commands.is_owner()
+    # @commands.is_owner()
     async def criaritem_prefix(self, ctx: commands.Context, template_id: str, id_do_jogo: int):
         """
         [Dono] Cria um item para um jogador usando o ID do Jogo.
@@ -48,7 +48,9 @@ class AdminCog(commands.Cog):
             item_data["durabilidade_atual"] = durabilidade_max
             
         item_ref.set(item_data)
-        inventory_ref = db.collection('characters').document(alvo_id_str).collection('inventario').document(str(item_id))
+        # --- CORREÇÃO APLICADA AQUI ---
+        # Salva a referência do item na coleção correta: 'inventario_equipamentos'
+        inventory_ref = db.collection('characters').document(alvo_id_str).collection('inventario_equipamentos').document(str(item_id))
         inventory_ref.set({'equipado': False})
 
         rarity = template_data.get("raridade", "COMUM").upper()

@@ -546,16 +546,15 @@ class BattleView(ui.View):
         embed.set_footer(text=f"Turno de: {self.combatente_atual.get('nick', self.combatente_atual.get('nome'))}")
         return embed
     
-    # --- MÉTODO DE VITÓRIA TOTALMENTE IMPLEMENTADO ---
     async def vitoria(self):
         self.stop()
         jogadores_vivos = self.jogadores
 
         if not jogadores_vivos:
-            embed = discord.Embed(title="Batalha Concluída", description="Todos os combatentes pereceram, não há vencedores.", color=discord.Color.dark_grey())
+            embed = discord.Embed(title="Batalha Concluída", description="Todos os combatentes pereceram...", color=discord.Color.dark_grey())
             return await self.message.edit(embed=embed, view=None)
 
-        # 1. CALCULAR RECOMPENSAS COMPARTILHADAS (XP & MOEDAS) - Sem alterações
+        # 1. CALCULAR RECOMPENSAS COMPARTILHADAS (XP & MOEDAS)
         total_xp = sum(m.get('xp_recompensa', 0) for m in self.monstros_originais)
         total_moedas = 0
         for monstro in self.monstros_originais:
@@ -563,13 +562,12 @@ class BattleView(ui.View):
             if moedas_info:
                 total_moedas += random.randint(moedas_info.get('min', 0), moedas_info.get('max', 0))
 
-        xp_por_jogador = total_xp // len(jogadores_vivos)
-        moedas_por_jogador = total_moedas // len(jogadores_vivos)
+        xp_por_jogador = total_xp // len(jogadores_vivos) if jogadores_vivos else 0
+        moedas_por_jogador = total_moedas // len(jogadores_vivos) if jogadores_vivos else 0
 
-        # 2. PROCESSAR LOOT E SEPARAR EM ÚNICOS E EMPILHÁVEIS
+        # 2. PROCESSAR E SEPARAR O LOOT
         loot_unico = []
         loot_empilhavel = {}
-
         for monstro in self.monstros_originais:
             for item_drop_info in monstro.get('loot_table', []):
                 if random.random() < item_drop_info.get('chance', 0):
@@ -582,65 +580,69 @@ class BattleView(ui.View):
 
                     if item_tipo in ['ARMA', 'ARMADURA', 'ESCUDO', 'FERRAMENTA']:
                         loot_unico.append(template_data)
-                    else: # MATERIAL, CONSUMIVEL, etc.
-                        # --- CORREÇÃO APLICADA AQUI ---
-                        # Verifica se existe uma faixa de quantidade no loot_table
-                        quantidade_range = item_drop_info.get('quantidade')
-                        
-                        if isinstance(quantidade_range, (list, tuple)) and len(quantidade_range) == 2:
-                            # Se for uma faixa válida como (1, 5), sorteia um número
-                            quantidade_a_adicionar = random.randint(quantidade_range[0], quantidade_range[1])
-                        else:
-                            # Se não, o padrão é dropar apenas 1
-                            quantidade_a_adicionar = 1
-                        
+                    else:
+                        quantidade_range = item_drop_info.get('quantidade', (1, 1))
+                        quantidade = random.randint(quantidade_range[0], quantidade_range[1])
                         if template_id not in loot_empilhavel:
                             loot_empilhavel[template_id] = {'nome': template_data['nome'], 'quantidade': 0}
-                        
-                        loot_empilhavel[template_id]['quantidade'] += quantidade_a_adicionar
+                        loot_empilhavel[template_id]['quantidade'] += quantidade
         
-        # 3. DISTRIBUIR ITENS E APLICAR RECOMPENSAS - (Lógica interna sem alterações)
-        recompensas_individuais = {p['id']: {"itens": [], "materiais": {}} for p in jogadores_vivos}
-        if loot_unico:
-            for item_template in loot_unico:
-                jogador_sorteado = random.choice(jogadores_vivos)
-                # (A lógica de criar o item único com stats_gerados vai aqui)
-                recompensas_individuais[jogador_sorteado['id']]["itens"].append(item_template['nome'])
+        # 3. DISTRIBUIR E SALVAR O LOOT
+        recompensas_individuais = {p['id']: {"itens": []} for p in jogadores_vivos}
+        
+        # Salva e distribui itens únicos (equipamentos)
+        for item_template in loot_unico:
+            jogador_sorteado = random.choice(jogadores_vivos)
+            user_id_str = str(jogador_sorteado['id'])
+            
+            transaction = db.transaction()
+            item_id = get_and_increment_item_id(transaction)
+            stats_gerados = {s: random.randint(v['min'], v['max']) for s, v in item_template.get('stats_base', {}).items()}
+            item_data = {"template_id": item_template['template_id'], "owner_id": user_id_str, "stats_gerados": stats_gerados}
+            db.collection('items').document(str(item_id)).set(item_data)
+            
+            # --- CORREÇÃO APLICADA AQUI ---
+            # Salva na coleção correta: 'inventario_equipamentos'
+            db.collection('characters').document(user_id_str).collection('inventario_equipamentos').document(str(item_id)).set({'equipado': False})
+            
+            recompensas_individuais[jogador_sorteado['id']]["itens"].append(item_template['nome'])
 
-        # 4. MONTAR O EMBED FINAL
-        embed = discord.Embed(title="🎉 VITÓRIA! 🎉", description=f"O grupo conquistou os desafios da Fenda Abissal!", color=discord.Color.gold())
+        # 4. MONTAR O EMBED E APLICAR RECOMPENSAS FINAIS
+        embed = discord.Embed(title="🎉 VITÓRIA! 🎉", description=f"O grupo conquistou os desafios!", color=discord.Color.gold())
         shared_rewards_str = ""
         if xp_por_jogador > 0: shared_rewards_str += f"🌟 `{xp_por_jogador}` de XP\n"
         if moedas_por_jogador > 0: shared_rewards_str += f"🪙 `{moedas_por_jogador}` Moedas"
         embed.add_field(name="Recompensas (Para Cada)", value=shared_rewards_str or "Nenhuma", inline=False)
 
-        log_distribuicao = ""
+        log_distribuicao_unico = ""
         for jogador in jogadores_vivos:
             user_id_str = str(jogador['id'])
             char_ref = db.collection('characters').document(user_id_str)
             
-            grant_xp(user_id=user_id_str, amount=xp_por_jogador)
+            resultado_xp = grant_xp(user_id=user_id_str, amount=xp_por_jogador)
+            if resultado_xp.get("leveled_up"):
+                # (Lógica de notificação de level up)
+                pass
+
             char_ref.update({"moedas": firestore.Increment(moedas_por_jogador)})
             
-            log_distribuicao += f"**{jogador['nick']}** recebeu:\n"
             itens_jogador = recompensas_individuais[jogador['id']]['itens']
             if itens_jogador:
-                log_distribuicao += "\n".join([f" > 🎁 `{nome}`" for nome in itens_jogador]) + "\n"
+                log_distribuicao_unico += f"**{jogador['nick']}** recebeu:\n" + "\n".join([f" > 🎁 `{nome}`" for nome in itens_jogador]) + "\n"
 
-        # --- CORREÇÃO NA EXIBIÇÃO E ATUALIZAÇÃO DOS ITENS EMPILHÁVEIS ---
         if loot_empilhavel:
-            materiais_str = ", ".join([f"`{info['quantidade']}x {info['nome']}`" for template_id, info in loot_empilhavel.items()])
-            embed.add_field(name="Tesouro do Grupo (Dividido)", value=materiais_str, inline=False)
+            materiais_str = ", ".join([f"`{info['quantidade']}x {info['nome']}`" for _, info in loot_empilhavel.items()])
+            embed.add_field(name="Tesouro do Grupo (Distribuído)", value=materiais_str, inline=False)
             
-            # Atualiza o inventário de cada jogador com os itens empilháveis
             for jogador in jogadores_vivos:
                 char_ref = db.collection('characters').document(str(jogador['id']))
                 for template_id, info in loot_empilhavel.items():
+                    # Salva na coleção correta: 'inventario_empilhavel'
                     item_ref = char_ref.collection('inventario_empilhavel').document(template_id)
                     item_ref.set({'quantidade': firestore.Increment(info['quantidade'])}, merge=True)
 
-        if any(v['itens'] for v in recompensas_individuais.values()):
-            embed.add_field(name="Loot Único Distribuído", value=log_distribuicao.strip(), inline=False)
+        if log_distribuicao_unico:
+            embed.add_field(name="Loot Único Distribuído", value=log_distribuicao_unico.strip(), inline=False)
 
         await self.message.edit(embed=embed, view=None)
 
@@ -662,24 +664,33 @@ class MundoCog(commands.Cog):
     @app_commands.command(name="explorar", description="Explore os arredores em busca de monstros para batalhar.")
     async def explorar(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        user_id = interaction.user.id # Usamos o ID como número
-        user_id_str = str(user_id) # A versão em texto é usada para o Firebase
+        user_id = interaction.user.id
+        user_id_str = str(user_id)
+        
         player_ref = db.collection('players').document(user_id_str)
         player_doc = player_ref.get()
         char_ref = db.collection('characters').document(user_id_str)
         char_doc = char_ref.get()
-        if not player_doc.exists or not char_doc.exists:
+
+        if not player_doc.exists() or not char_doc.exists():
             await interaction.followup.send("Você precisa se registrar (`/registrar`) e criar um personagem (`/perfil`) primeiro!")
             return
+
         player_data = player_doc.to_dict()
         char_data = char_doc.to_dict()
+        
+        # Carrega os itens equipados para calcular os status corretamente
         equipped_items_data = []
+        # AQUI USAMOS A COLEÇÃO 'inventario' QUE VOCÊ ESTÁ USANDO
         inventory_snapshot = db.collection('characters').document(user_id_str).collection('inventario').where('equipado', '==', True).stream()
         for item_ref in inventory_snapshot:
             instance_doc = db.collection('items').document(item_ref.id).get()
             if instance_doc.exists:
                 equipped_items_data.append({"instance_data": instance_doc.to_dict()})
+
         stats_completos = calcular_stats_completos(char_data, equipped_items_data)
+        
+        # Garante que a vida e mana atuais não ultrapassem o máximo
         vida_maxima_final = stats_completos.get('VIDA_MAXIMA', 100)
         mana_maxima_final = stats_completos.get('MANA_MAXIMA', 100)
         vida_atual_corrigida = min(char_data.get('vida_atual', vida_maxima_final), vida_maxima_final)
@@ -689,8 +700,11 @@ class MundoCog(commands.Cog):
         combat_path = classe_info.get('combat_image_path')
         combat_url = get_signed_url(combat_path) if combat_path else None
         
+        # PREPARA O JOGADOR PARA A BATALHA
         jogadores_para_batalha = [{
-            "id": user_id, # A ETIQUETA DE IDENTIFICAÇÃO QUE FALTAVA
+            # --- CORREÇÃO APLICADA AQUI ---
+            "id": user_id, # Garante que o ID seja um NÚMERO
+            
             "stats": stats_completos,
             "vida_atual": vida_atual_corrigida,
             "mana_atual": mana_atual_corrigida,
@@ -698,10 +712,10 @@ class MundoCog(commands.Cog):
             "classe": char_data.get('classe'),
             "imagem_url": combat_url,
             "nick": player_data.get('nick', interaction.user.display_name),
-            "nome": player_data.get('nick', interaction.user.display_name), # Adicionado para consistência
-            "efeitos_ativos": [] # NOVO: Inicializa a lista de efeitos
+            "efeitos_ativos": []
         }]
-        # PREPARA O MONSTRO PARA A BATALHA (agora em uma lista)
+
+        # PREPARA O MONSTRO PARA A BATALHA
         monster_id = random.choice(list(MONSTROS.keys()))
         template = MONSTROS[monster_id].copy()
         monstros_para_batalha = [{
@@ -711,13 +725,11 @@ class MundoCog(commands.Cog):
             "efeitos_ativos": []
         }]
         
-        
-        # CHAMA A NOVA BATTLEVIEW GLOBAL
+        # CHAMA A BATTLEVIEW GLOBAL
         view = BattleView(
             bot=self.bot,
             jogadores_data=jogadores_para_batalha,
-            monstros_data=monstros_para_batalha,
-            tier=1 # Batalhas de exploração são sempre Tier 1
+            monstros_data=monstros_para_batalha
         )
         
         message = await interaction.followup.send("Você encontrou um inimigo!", ephemeral=True)
@@ -987,8 +999,8 @@ class MundoCog(commands.Cog):
         
         equipped_items = {}
         # --- CORREÇÃO APLICADA AQUI ---
-        # Alterado de 'inventario_unico' para 'inventario' para corresponder à sua estrutura atual
-        inventory_snapshot = char_ref.collection('inventario').where('equipado', '==', True).stream()
+        # Alterado de 'inventario' para 'inventario_equipamentos'
+        inventory_snapshot = char_ref.collection('inventario_equipamentos').where('equipado', '==', True).stream()
         
         for item_ref in inventory_snapshot:
             item_id = item_ref.id
@@ -1011,7 +1023,7 @@ class MundoCog(commands.Cog):
                 }
         
         # Para depuração: veja no seu console o que está sendo carregado
-        print(f"DEBUG para {interaction.user.name}: Itens Equipados: {list(equipped_items.keys())}")
+        print(f"DEBUG para {interaction.user.name}: Itens Equipados no /mina: {list(equipped_items.keys())}")
         
         view = MiningView(author=interaction.user, char_data=char_data, cidade_data=cidade_data, equipped_items=equipped_items)
         embed = view.create_embed()

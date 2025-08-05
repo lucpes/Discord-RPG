@@ -24,6 +24,7 @@ from data.minas_library import MINAS
 # ---------------------------------------------------------------------------------
 # VIEW DO PERFIL
 # ---------------------------------------------------------------------------------
+# --- VIEW DO PERFIL (MÉTODO 'inventario' ATUALIZADO) ---
 class PerfilView(ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -32,23 +33,59 @@ class PerfilView(ui.View):
     async def inventario(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.defer(ephemeral=True, thinking=True)
         user_id = str(interaction.user.id)
-        inventory_snapshot = db.collection('characters').document(user_id).collection('inventario').stream()
-        equipped_items, backpack_items = {}, []
-        for item_ref in inventory_snapshot:
-            item_id, is_equipped = item_ref.id, item_ref.to_dict().get('equipado', False)
+        char_ref = db.collection('characters').document(user_id)
+
+        # Listas para guardar os 3 tipos de itens
+        equipped_items = {}
+        unequipped_equipment = []
+        
+        # Carrega equipamentos da coleção 'inventario_equipamentos'
+        equip_snapshot = char_ref.collection('inventario_equipamentos').stream()
+        for item_ref in equip_snapshot:
+            item_id = item_ref.id
+            is_equipped = item_ref.to_dict().get('equipado', False)
+            
             instance_doc = db.collection('items').document(item_id).get()
             if not instance_doc.exists: continue
+            
             instance_data = instance_doc.to_dict()
             template_doc = db.collection('item_templates').document(instance_data['template_id']).get()
             if not template_doc.exists: continue
+            
             template_data = template_doc.to_dict()
             full_item_data = {"id": item_id, "instance_data": instance_data, "template_data": template_data}
+            
             if is_equipped:
                 slot = template_data.get('slot')
                 if slot: equipped_items[slot] = full_item_data
             else:
-                backpack_items.append(full_item_data)
-        view = InventarioView(user=interaction.user, equipped_items=equipped_items, backpack_items=backpack_items)
+                # Se não está equipado, vai para a lista de equipamentos na mochila
+                unequipped_equipment.append(full_item_data)
+
+        # Carrega materiais/consumíveis da coleção 'inventario_empilhavel'
+        stackable_items = []
+        stackable_snapshot = char_ref.collection('inventario_empilhavel').stream()
+        for item_ref in stackable_snapshot:
+            template_id = item_ref.id
+            quantidade = item_ref.to_dict().get('quantidade', 0)
+            if quantidade <= 0: continue
+            
+            template_doc = db.collection('item_templates').document(template_id).get()
+            if not template_doc.exists: continue
+            
+            stackable_items.append({
+                "template_id": template_id,
+                "quantidade": quantidade,
+                "template_data": template_doc.to_dict()
+            })
+
+        # Passa as 3 listas para a InventarioView
+        view = InventarioView(
+            user=interaction.user, 
+            equipped_items=equipped_items, 
+            unequipped_equipment=unequipped_equipment,
+            stackable_items=stackable_items
+        )
         embed = await view.create_inventory_embed()
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
@@ -76,16 +113,35 @@ class PerfilView(ui.View):
 # ---------------------------------------------------------------------------------
 # VIEW DE INVENTÁRIO
 # ---------------------------------------------------------------------------------
+# --- VIEW DE INVENTÁRIO TOTALMENTE REFEITA ---
 class InventarioView(ui.View):
-    def __init__(self, user: discord.User, equipped_items: dict, backpack_items: list):
+    def __init__(self, user: discord.User, equipped_items: dict, unequipped_equipment: list, stackable_items: list):
         super().__init__(timeout=300)
         self.user = user
         self.equipped_items = equipped_items
-        self.backpack_items = backpack_items
-        self.items_per_page = 4
+        self.unequipped_equipment = unequipped_equipment
+        self.stackable_items = stackable_items
+        
+        # A paginação agora pode ser para ambos os tipos de itens na mochila
+        self.backpack_items = self.unequipped_equipment + self.stackable_items
+        
+        self.items_per_page = 5
         self.current_page = 1
         self.total_pages = math.ceil(len(self.backpack_items) / self.items_per_page) if self.backpack_items else 1
         self.update_buttons()
+        
+    # --- MÉTODO ATUALIZADO PARA O NOVO FORMATO ---
+    def format_stackable_item_line(self, item_data):
+        template = item_data['template_data']
+        item_emote = template.get('emote', '📦')
+        rarity_id = template.get('raridade', 'COMUM').upper()
+        rarity_emoji = RARITY_EMOJIS.get(rarity_id, '⚪️')
+        tipo = template.get('tipo', 'Item').capitalize()
+        
+        main_line = f"{item_emote} `x{item_data['quantidade']}` **{template['nome']}** {rarity_emoji}"
+        detail_line = f"↳ *{tipo}*"
+        
+        return f"{main_line}\n{detail_line}"
 
     def update_buttons(self):
         prev_button = discord.utils.get(self.children, custom_id="prev_page")
@@ -93,52 +149,114 @@ class InventarioView(ui.View):
         if prev_button: prev_button.disabled = self.current_page == 1
         if next_button: next_button.disabled = self.current_page >= self.total_pages
 
+    # --- MÉTODO ATUALIZADO PARA O NOVO FORMATO ---
     def format_item_line(self, item_data):
         template = item_data['template_data']
+        instance = item_data['instance_data']
+        item_emote = template.get('emote', '❓')
         rarity_id = template.get('raridade', 'COMUM').upper()
-        emoji = RARITY_EMOJIS.get(rarity_id, '⚪️')
-        return f"{emoji} `[{item_data['id']}]` **{template['nome']}**"
+        rarity_emoji = RARITY_EMOJIS.get(rarity_id, '⚪️')
+        
+        main_line = f"{item_emote} `[{item_data['id']}]` **{template['nome']}** {rarity_emoji}"
+        
+        stats_str = ""
+        # (Lógica para buscar stats de combate ou de ferramenta - sem alterações)
+        stats_gerados = instance.get('stats_gerados', {})
+        if stats_gerados:
+            stats_list = [f"{stat.replace('_', ' ').capitalize()} +{value}" for stat, value in stats_gerados.items()]
+            stats_str = " | ".join(stats_list)
+        else:
+            atributos_ferramenta = template.get('atributos_ferramenta', {})
+            if atributos_ferramenta:
+                stats_list = []
+                
+                # Pega a durabilidade máxima do template
+                dur_max = atributos_ferramenta.get('durabilidade_max', 1)
+                # Pega a durabilidade ATUAL da instância do item
+                dur_atual = instance.get('durabilidade_atual', dur_max)
+                stats_list.append(f"Durabilidade: {dur_atual}/{dur_max}")
 
+                # Adiciona os outros atributos, ignorando a durabilidade_max
+                for attr, value in atributos_ferramenta.items():
+                    if attr != 'durabilidade_max':
+                        attr_name = attr.replace('_', ' ').capitalize()
+                        stats_list.append(f"{attr_name}: {value}")
+                
+                stats_str = " | ".join(stats_list)
+
+        if stats_str:
+            return f"{main_line}\n↳ `{stats_str}`"
+        else:
+            return main_line
+        
+    # --- MÉTODO ATUALIZADO PARA O NOVO LAYOUT ---
     async def create_inventory_embed(self):
         embed = discord.Embed(title=f"Inventário de {self.user.display_name}", color=self.user.color)
-        embed.set_thumbnail(url=self.user.display_avatar.url)
-        armor_slots, accessory_slots, rune_slots = ["CAPACETE", "PEITORAL", "CALCA", "BOTA"], ["MAO_PRINCIPAL", "MAO_SECUNDARIA", "ANEL", "COLAR"], ["RUNA_1", "RUNA_2"]
-        armor_str, accessory_str, rune_str = "", "", ""
-        tool_slots = ["PICARETA", "MACHADO"]
-        for slot_id in armor_slots:
-            slot_info = EQUIPMENT_SLOTS[slot_id]
-            item = self.equipped_items.get(slot_id)
-            armor_str += f"{slot_info['emoji']} **{slot_info['display']}:**\n" + (f"↳ {self.format_item_line(item)}\n" if item else "↳ — *Vazio*\n")
-        embed.add_field(name="Armadura Principal", value=armor_str, inline=True)
-        for slot_id in accessory_slots:
-            slot_info = EQUIPMENT_SLOTS[slot_id]
-            item = self.equipped_items.get(slot_id)
-            accessory_str += f"{slot_info['emoji']} **{slot_info['display']}:**\n" + (f"↳ {self.format_item_line(item)}\n" if item else "↳ — *Vazio*\n")
-        embed.add_field(name="Combate e Acessórios", value=accessory_str, inline=True)
-        for slot_id in rune_slots:
-            slot_info = EQUIPMENT_SLOTS[slot_id]
-            item = self.equipped_items.get(slot_id)
-            rune_str += f"{slot_info['emoji']} {self.format_item_line(item) if item else '— *Vazio*'}\n"
-        embed.add_field(name="Runas", value=rune_str, inline=False)
-        tool_str = ""
-        for slot_id in tool_slots:
-            slot_info = EQUIPMENT_SLOTS.get(slot_id)
-            if not slot_info: continue # Ignora se o slot não estiver em game_constants
-            item = self.equipped_items.get(slot_id)
-            tool_str += f"{slot_info['emoji']} **{slot_info['display']}:** " + (f"{self.format_item_line(item)}\n" if item else "*Vazio*\n")
         
-        if tool_str:
-             embed.add_field(name="Ferramentas", value=tool_str, inline=False)
+        # Definição dos slots para cada coluna
+        armor_slots = ["CAPACETE", "PEITORAL", "CALCA", "BOTA"]
+        accessory_slots = ["MAO_PRINCIPAL", "MAO_SECUNDARIA", "ANEL", "COLAR"]
+        utility_slots = ["PICARETA", "MACHADO", "RUNA_1", "RUNA_2"]
+
+        # --- LÓGICA DE EXIBIÇÃO CORRIGIDA ---
+
+        # Coluna 1: Armadura
+        armor_str = ""
+        for slot_id in armor_slots:
+            slot_info = EQUIPMENT_SLOTS.get(slot_id, {})
+            item = self.equipped_items.get(slot_id)
+            # AQUI USAMOS O format_item_line SEM A PARTE DOS STATUS
+            item_line = f"{self.format_item_line(item).splitlines()[0]}" if item else "— *Vazio*"
+            armor_str += f"{slot_info.get('emoji', ' ')} **{slot_info.get('display', slot_id)}:**\n↳ {item_line}\n"
+        embed.add_field(name="Equipamentos de Defesa", value=armor_str, inline=True)
+
+        # Coluna 2: Combate
+        accessory_str = ""
+        for slot_id in accessory_slots:
+            slot_info = EQUIPMENT_SLOTS.get(slot_id, {})
+            item = self.equipped_items.get(slot_id)
+            item_line = f"{self.format_item_line(item).splitlines()[0]}" if item else "— *Vazio*"
+            accessory_str += f"{slot_info.get('emoji', ' ')} **{slot_info.get('display', slot_id)}:**\n↳ {item_line}\n"
+        embed.add_field(name="Equipamentos de Combate", value=accessory_str, inline=True)
+        
+        # Coluna 3: Ferramentas e Runas
+        utility_str = ""
+        for slot_id in ["PICARETA", "MACHADO"]:
+            slot_info = EQUIPMENT_SLOTS.get(slot_id)
+            if not slot_info: continue
+            item = self.equipped_items.get(slot_id)
+            item_line = f"{self.format_item_line(item).splitlines()[0]}" if item else "*Vazio*"
+            utility_str += f"{slot_info['emoji']} **{slot_info['display']}:** {item_line}\n"
+        
+        utility_str += "\n" 
+        for slot_id in ["RUNA_1", "RUNA_2"]:
+             slot_info = EQUIPMENT_SLOTS.get(slot_id)
+             if not slot_info: continue
+             item = self.equipped_items.get(slot_id)
+             item_line = f"{self.format_item_line(item).splitlines()[0]}" if item else "— *Vazio*"
+             utility_str += f"{slot_info['emoji']} {item_line}\n"
+        
+        embed.add_field(name="Ferramentas e Runas", value=utility_str, inline=True)
+        
+        # A mochila continua em baixo, ocupando a largura total
         if not self.backpack_items:
             embed.add_field(name="🎒 Mochila", value="Sua mochila está vazia.", inline=False)
         else:
-            start_index, end_index = (self.current_page - 1) * self.items_per_page, self.current_page * self.items_per_page
+            # ... (lógica da mochila e paginação - sem alterações)
+            start_index = (self.current_page - 1) * self.items_per_page
+            end_index = self.current_page * self.items_per_page
             items_on_page = self.backpack_items[start_index:end_index]
-            backpack_list = [self.format_item_line(item) for item in items_on_page]
+            backpack_list = []
+            for item in items_on_page:
+                if 'quantidade' in item:
+                    backpack_list.append(self.format_stackable_item_line(item))
+                else:
+                    backpack_list.append(self.format_item_line(item))
             embed.add_field(name="🎒 Mochila", value="\n".join(backpack_list), inline=False)
             embed.set_footer(text=f"Use /equipar <ID> para equipar um item | Página {self.current_page}/{self.total_pages}")
+            
         return embed
-
+    
     @ui.button(label="⬅️", style=discord.ButtonStyle.primary, custom_id="prev_page")
     async def previous_page(self, interaction: discord.Interaction, button: ui.Button):
         if interaction.user.id != self.user.id: return
@@ -158,17 +276,42 @@ class InventarioView(ui.View):
     @ui.button(label="Desequipar Tudo", style=discord.ButtonStyle.danger, emoji="♻️", custom_id="unequip_all", row=1)
     async def unequip_all(self, interaction: discord.Interaction, button: ui.Button):
         if interaction.user.id != self.user.id: return
+        # A resposta à interação é deferida aqui
         await interaction.response.defer(thinking=True, ephemeral=True)
         user_id = str(interaction.user.id)
+        
+        if not self.equipped_items:
+            await interaction.followup.send("Você não tem itens equipados para desequipar.", ephemeral=True)
+            return
+
         batch = db.batch()
         unequipped_count = 0
+        items_to_move = []
+
         for item_data in self.equipped_items.values():
-            item_ref = db.collection('characters').document(user_id).collection('inventario').document(item_data['id'])
+            items_to_move.append(item_data)
+            item_ref = db.collection('characters').document(user_id).collection('inventario_equipamentos').document(item_data['id'])
             batch.update(item_ref, {'equipado': False})
             unequipped_count += 1
+            
         if unequipped_count > 0:
             batch.commit()
-            await interaction.followup.send(f"✅ {unequipped_count} item(ns) foram desequipados.", ephemeral=True)
+            
+            # Atualiza o estado local da View
+            self.unequipped_equipment.extend(items_to_move)
+            self.equipped_items.clear()
+            self.backpack_items = self.unequipped_equipment + self.stackable_items
+            self.total_pages = math.ceil(len(self.backpack_items) / self.items_per_page) if self.backpack_items else 1
+            self.current_page = 1
+            self.update_buttons()
+
+            new_embed = await self.create_inventory_embed()
+            
+            # --- CORREÇÃO APLICADA AQUI ---
+            # Usamos edit_original_response para editar a mensagem original da interação
+            await interaction.edit_original_response(embed=new_embed, view=self)
+            
+            await interaction.followup.send(f"✅ {unequipped_count} item(ns) foram desequipados e movidos para a mochila.", ephemeral=True)
         else:
             await interaction.followup.send("Você não tem itens equipados.", ephemeral=True)
 
@@ -749,14 +892,14 @@ class PortalAbertoView(ui.View):
             
             await interaction.followup.send(f"Você criou um lobby para a Fenda de Tier {tier}!", ephemeral=True)
             
-# --- VIEW DE MINERAÇÃO COMPLETA E FUNCIONAL ---
+# --- VIEW DE MINERAÇÃO COM INTERFACE APRIMORADA ---
 class MiningView(ui.View):
     def __init__(self, author: discord.User, char_data: dict, cidade_data: dict, equipped_items: dict):
         super().__init__(timeout=300)
         self.author = author
         self.char_data = char_data
         self.cidade_data = cidade_data
-        self.equipped_items = equipped_items # Guarda os itens equipados
+        self.equipped_items = equipped_items
         
         self.update_view()
 
@@ -774,16 +917,29 @@ class MiningView(ui.View):
                 collect_button.callback = self.collect_rewards
                 self.add_item(collect_button)
 
+    # --- MÉTODO ATUALIZADO ---
     def create_mine_select(self) -> ui.Select:
-        """Cria o menu de seleção com as minas disponíveis."""
+        """Cria o menu de seleção com as minas, já mostrando o tempo final com bônus."""
         nivel_mina_cidade = self.cidade_data.get('construcoes', {}).get('MINA', {}).get('nivel', 0)
+        
+        # Pega a eficiência da picareta para calcular o tempo antes mesmo da seleção
+        picareta_equipada = self.equipped_items.get("PICARETA")
+        atributos_picareta = picareta_equipada['template_data'].get('atributos_ferramenta', {}) if picareta_equipada else {}
+        eficiencia = atributos_picareta.get('eficiencia', 0)
         
         options = []
         for mine_id, mine_info in MINAS.items():
             if mine_info['nivel_minimo_edificio'] <= nivel_mina_cidade:
+                # Calcula o tempo final para cada mina
+                tempo_base_s = mine_info['tempo_s']
+                # --- CORREÇÃO APLICADA AQUI ---
+                # Converte o resultado para um número inteiro para remover os milésimos
+                tempo_final_s = int(tempo_base_s * (1 - eficiencia))
+                
                 options.append(discord.SelectOption(
-                    label=mine_info['nome'], value=mine_id,
-                    description=f"Tempo: {timedelta(seconds=mine_info['tempo_s'])}"
+                    label=mine_info['nome'],
+                    value=mine_id,
+                    description=f"Tempo: {timedelta(seconds=tempo_final_s)}"
                 ))
 
         if not options:
@@ -906,50 +1062,52 @@ class MiningView(ui.View):
         )
         await interaction.edit_original_response(embed=embed, view=self)
 
+    # --- MÉTODO ATUALIZADO ---
     def create_embed(self) -> discord.Embed:
-        """Cria o embed com base no estado de mineração do jogador."""
+        """Cria o embed com base no estado e exibe os status completos da picareta."""
         mining_status = self.char_data.get('mineração_ativa', {})
-        
+        embed = discord.Embed()
+
         if not mining_status:
-            # Embed para o estado "Livre"
-            embed = discord.Embed(
-                title="⛏️ Central de Mineração",
-                description="Selecione uma mina disponível para começar a extrair recursos.",
-                color=discord.Color.dark_gray()
-            )
+            embed.title="⛏️ Central de Mineração"
+            embed.description="Selecione uma mina disponível para começar a extrair recursos."
+            embed.color=discord.Color.dark_gray()
             embed.set_footer(text="O nível da Mina da sua cidade libera novos locais.")
         else:
             termina_em = mining_status.get('termina_em')
             if datetime.now(timezone.utc) >= termina_em:
-                # Embed para o estado "Pronto para Coletar"
-                embed = discord.Embed(
-                    title="🎉 Mineração Concluída! 🎉",
-                    description="Seus recursos estão prontos para serem coletados! Clique no botão abaixo.",
-                    color=discord.Color.gold()
-                )
+                embed.title="🎉 Mineração Concluída! 🎉"
+                embed.description="Seus recursos estão prontos para serem coletados! Clique no botão abaixo."
+                embed.color=discord.Color.gold()
             else:
-                # Embed para o estado "Minerando"
-                embed = discord.Embed(
-                    title="⛏️ Minerando...",
-                    description=f"Você está trabalhando duro na extração de recursos. Volte mais tarde para coletar.\n\n**Conclusão em:** <t:{int(termina_em.timestamp())}:R>",
-                    color=discord.Color.orange()
-                )
+                embed.title="⛏️ Minerando..."
+                embed.description=f"Você está trabalhando duro...\n\n**Conclusão em:** <t:{int(termina_em.timestamp())}:R>"
+                embed.color=discord.Color.orange()
         
-        # --- EXIBIÇÃO DA DURABILIDADE CORRIGIDA ---
+        # Exibe os status completos da picareta equipada
         picareta_equipada = self.equipped_items.get("PICARETA")
         if picareta_equipada:
             template_data = picareta_equipada['template_data']
             instance_data = picareta_equipada['instance_data']
+            atributos = template_data.get('atributos_ferramenta', {})
             
-            # Busca a durabilidade atual da instância do item
-            atributos_template = template_data.get('atributos_ferramenta', {})
-            dur_max = atributos_template.get('durabilidade_max', 1)
-            # Se 'durabilidade_atual' não existir na instância, usa a máxima do template
+            dur_max = atributos.get('durabilidade_max', 1)
             dur_atual = instance_data.get('durabilidade_atual', dur_max)
+            
+            # Formata todos os atributos para exibição
+            stats_list = [f"Durabilidade: {dur_atual}/{dur_max}"]
+            for attr, value in atributos.items():
+                if attr != 'durabilidade_max':
+                    attr_name = attr.replace('_', ' ').capitalize()
+                    # Formata como porcentagem se for eficiencia ou poder de coleta
+                    if attr in ['eficiencia', 'poder_coleta']:
+                         stats_list.append(f"{attr_name}: {value:.0%}")
+                    else:
+                        stats_list.append(f"{attr_name}: {value}")
 
             embed.add_field(
                 name="Ferramenta Equipada",
-                value=f"{template_data.get('emote', '⛏️')} **{template_data.get('nome')}**\n`Durabilidade: {dur_atual}/{dur_max}`",
+                value=f"{template_data.get('emote', '⛏️')} **{template_data.get('nome')}**\n`{' | '.join(stats_list)}`",
                 inline=False
             )
         else:
