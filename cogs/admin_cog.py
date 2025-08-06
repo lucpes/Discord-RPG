@@ -2,7 +2,8 @@
 import discord
 import random
 from discord.ext import commands
-from firebase_config import db, bucket # Importa o bucket também
+from firebase_config import db, bucket
+from firebase_admin import firestore # Importa o firestore para o Increment
 from data.stats_library import format_stat
 from datetime import datetime, timedelta, timezone
 
@@ -15,55 +16,70 @@ class AdminCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    # --- COMANDOS MOVIDOS PARA DENTRO DA CLASSE ---
-
+    # --- COMANDO CRIARITEM TOTALMENTE REFEITO ---
     @commands.command(name="criaritem")
-    # @commands.is_owner()
-    async def criaritem_prefix(self, ctx: commands.Context, template_id: str, id_do_jogo: int):
+    @commands.is_owner()
+    async def criaritem_prefix(self, ctx: commands.Context, template_id: str, id_do_jogo: int, quantidade: int = 1):
         """
-        [Dono] Cria um item para um jogador usando o ID do Jogo.
+        [Dono] Cria um ou mais itens para um jogador.
+        Uso: !criaritem <template_id> <id_do_jogo> [quantidade]
         """
         alvo, alvo_id_str = await find_player_by_game_id(ctx, id_do_jogo)
         if not alvo:
-            await ctx.reply(f"❌ Jogador com ID de Jogo `{id_do_jogo}` não encontrado.")
-            return
+            return await ctx.reply(f"❌ Jogador com ID de Jogo `{id_do_jogo}` não encontrado.")
 
         template_ref = db.collection('item_templates').document(template_id)
         template_doc = template_ref.get()
         if not template_doc.exists:
-            await ctx.reply(f"❌ Template com ID `{template_id}` não encontrado.")
-            return
+            return await ctx.reply(f"❌ Template com ID `{template_id}` não encontrado.")
 
         template_data = template_doc.to_dict()
-        stats_gerados = {s: random.randint(v['min'], v['max']) for s, v in template_data.get('stats_base', {}).items()}
-        transaction = db.transaction()
-        item_id = get_and_increment_item_id(transaction)
-        item_ref = db.collection('items').document(str(item_id))
-        item_data = {"template_id": template_id, "owner_id": alvo_id_str, "stats_gerados": stats_gerados, "encantamentos_aplicados": []}
-        # --- LÓGICA DE DURABILIDADE ADICIONADA AQUI ---
-        if template_data.get("tipo") == "FERRAMENTA":
-            atributos = template_data.get("atributos_ferramenta", {})
-            durabilidade_max = atributos.get("durabilidade_max", 100)
-            # Define a durabilidade atual igual à máxima no momento da criação
-            item_data["durabilidade_atual"] = durabilidade_max
-            
-        item_ref.set(item_data)
-        # --- CORREÇÃO APLICADA AQUI ---
-        # Salva a referência do item na coleção correta: 'inventario_equipamentos'
-        inventory_ref = db.collection('characters').document(alvo_id_str).collection('inventario_equipamentos').document(str(item_id))
-        inventory_ref.set({'equipado': False})
+        item_tipo = template_data.get("tipo", "MATERIAL")
+        char_ref = db.collection('characters').document(alvo_id_str)
 
-        rarity = template_data.get("raridade", "COMUM").upper()
-        embed = discord.Embed(
-            title="✨ Item Forjado Pelo Mestre do Jogo! ✨",
-            description=f"Um novo item foi criado e entregue para {alvo.mention}.",
-            color=discord.Color.gold()
-        )
-        embed.add_field(name="Nome do Item", value=f"**{template_data['nome']}** `[ID: {item_id}]`", inline=False)
-        embed.add_field(name="Raridade", value=f"**{rarity.capitalize()}**", inline=False)
-        stats_str = "\n".join([format_stat(s, v) for s, v in stats_gerados.items()]) or "Nenhum atributo base."
-        embed.add_field(name="Atributos", value=stats_str, inline=False)
-        embed.set_footer(text=f"Template base: {template_id}")
+        # Verifica o tipo de item para decidir a ação
+        if item_tipo in ["ARMA", "ARMADURA", "ESCUDO", "FERRAMENTA"]:
+            # --- LÓGICA PARA ITENS ÚNICOS (EQUIPAMENTOS) ---
+            stats_gerados = {s: random.randint(v['min'], v['max']) for s, v in template_data.get('stats_base', {}).items()}
+            
+            transaction = db.transaction()
+            item_id = get_and_increment_item_id(transaction)
+            
+            item_ref = db.collection('items').document(str(item_id))
+            item_data = {"template_id": template_id, "owner_id": alvo_id_str, "stats_gerados": stats_gerados, "encantamentos_aplicados": []}
+            
+            if template_data.get("tipo") == "FERRAMENTA":
+                atributos = template_data.get("atributos_ferramenta", {})
+                item_data["durabilidade_atual"] = atributos.get("durabilidade_max", 100)
+            
+            item_ref.set(item_data)
+            
+            inventory_ref = char_ref.collection('inventario_equipamentos').document(str(item_id))
+            inventory_ref.set({'equipado': False})
+
+            # Monta o embed de sucesso para item único
+            embed = discord.Embed(
+                title="✨ Item Único Forjado! ✨",
+                description=f"Um novo equipamento foi criado e entregue para {alvo.mention}.",
+                color=discord.Color.gold()
+            )
+            embed.add_field(name="Item Criado", value=f"**{template_data['nome']}** `[ID: {item_id}]`", inline=False)
+            stats_str = "\n".join([format_stat(s, v) for s, v in stats_gerados.items()]) or "Nenhum atributo."
+            embed.add_field(name="Atributos", value=stats_str, inline=False)
+
+        else:
+            # --- LÓGICA PARA ITENS EMPILHÁVEIS (MATERIAIS/CONSUMÍVEIS) ---
+            inventory_ref = char_ref.collection('inventario_empilhavel').document(template_id)
+            inventory_ref.set({'quantidade': firestore.Increment(quantidade)}, merge=True)
+
+            # Monta o embed de sucesso para item empilhável
+            embed = discord.Embed(
+                title="📦 Itens Adicionados! 📦",
+                description=f"Itens foram adicionados ao inventário de {alvo.mention}.",
+                color=discord.Color.blue()
+            )
+            embed.add_field(name="Item Adicionado", value=f"`{quantidade}x` **{template_data['nome']}**", inline=False)
+
         await ctx.reply(embed=embed)
 
     @commands.command(name="darxp")

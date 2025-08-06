@@ -86,6 +86,13 @@ TEMPLATES_PARA_UPLOAD = {
         "raridade": "INCOMUM",
         "descricao": "Uma rocha rica em ferro, pronta para ser refinada em uma forja."
     },
+    "graveto": {
+        "nome": "Graveto",
+        "emote": "🪵",
+        "tipo": "MATERIAL",
+        "raridade": "COMUM",
+        "descricao": "Gravento comum."
+    },
     
     # --- FERRAMENTAS ---
     "picareta_ferro": {

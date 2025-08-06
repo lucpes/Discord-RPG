@@ -579,8 +579,11 @@ class BattleView(ui.View):
                     item_tipo = template_data.get('tipo', 'MATERIAL')
 
                     if item_tipo in ['ARMA', 'ARMADURA', 'ESCUDO', 'FERRAMENTA']:
-                        loot_unico.append(template_data)
+                        # --- CORREÇÃO APLICADA AQUI ---
+                        # Agora guardamos tanto o ID quanto os dados do template
+                        loot_unico.append({"template_id": template_id, "data": template_data})
                     else:
+                        # (Lógica de contagem de itens empilháveis - sem alterações)
                         quantidade_range = item_drop_info.get('quantidade', (1, 1))
                         quantidade = random.randint(quantidade_range[0], quantidade_range[1])
                         if template_id not in loot_empilhavel:
@@ -590,22 +593,27 @@ class BattleView(ui.View):
         # 3. DISTRIBUIR E SALVAR O LOOT
         recompensas_individuais = {p['id']: {"itens": []} for p in jogadores_vivos}
         
-        # Salva e distribui itens únicos (equipamentos)
-        for item_template in loot_unico:
-            jogador_sorteado = random.choice(jogadores_vivos)
-            user_id_str = str(jogador_sorteado['id'])
-            
-            transaction = db.transaction()
-            item_id = get_and_increment_item_id(transaction)
-            stats_gerados = {s: random.randint(v['min'], v['max']) for s, v in item_template.get('stats_base', {}).items()}
-            item_data = {"template_id": item_template['template_id'], "owner_id": user_id_str, "stats_gerados": stats_gerados}
-            db.collection('items').document(str(item_id)).set(item_data)
-            
-            # --- CORREÇÃO APLICADA AQUI ---
-            # Salva na coleção correta: 'inventario_equipamentos'
-            db.collection('characters').document(user_id_str).collection('inventario_equipamentos').document(str(item_id)).set({'equipado': False})
-            
-            recompensas_individuais[jogador_sorteado['id']]["itens"].append(item_template['nome'])
+        if loot_unico:
+            for loot_item in loot_unico:
+                jogador_sorteado = random.choice(jogadores_vivos)
+                user_id_str = str(jogador_sorteado['id'])
+                
+                # --- CORREÇÃO APLICADA AQUI ---
+                # Usamos os dados que guardamos corretamente
+                item_template_id = loot_item['template_id']
+                item_template_data = loot_item['data']
+
+                transaction = db.transaction()
+                item_id = get_and_increment_item_id(transaction)
+                stats_gerados = {s: random.randint(v['min'], v['max']) for s, v in item_template_data.get('stats_base', {}).items()}
+                
+                # Usa o item_template_id correto para criar o novo item
+                item_data = {"template_id": item_template_id, "owner_id": user_id_str, "stats_gerados": stats_gerados}
+                db.collection('items').document(str(item_id)).set(item_data)
+                
+                db.collection('characters').document(user_id_str).collection('inventario_equipamentos').document(str(item_id)).set({'equipado': False})
+                
+                recompensas_individuais[jogador_sorteado['id']]["itens"].append(item_template_data['nome'])
 
         # 4. MONTAR O EMBED E APLICAR RECOMPENSAS FINAIS
         embed = discord.Embed(title="🎉 VITÓRIA! 🎉", description=f"O grupo conquistou os desafios!", color=discord.Color.gold())
@@ -672,7 +680,7 @@ class MundoCog(commands.Cog):
         char_ref = db.collection('characters').document(user_id_str)
         char_doc = char_ref.get()
 
-        if not player_doc.exists() or not char_doc.exists():
+        if not player_doc.exists or not char_doc.exists:
             await interaction.followup.send("Você precisa se registrar (`/registrar`) e criar um personagem (`/perfil`) primeiro!")
             return
 
@@ -682,7 +690,7 @@ class MundoCog(commands.Cog):
         # Carrega os itens equipados para calcular os status corretamente
         equipped_items_data = []
         # AQUI USAMOS A COLEÇÃO 'inventario' QUE VOCÊ ESTÁ USANDO
-        inventory_snapshot = db.collection('characters').document(user_id_str).collection('inventario').where('equipado', '==', True).stream()
+        inventory_snapshot = db.collection('characters').document(user_id_str).collection('inventario_equipamentos').where('equipado', '==', True).stream()
         for item_ref in inventory_snapshot:
             instance_doc = db.collection('items').document(item_ref.id).get()
             if instance_doc.exists:
