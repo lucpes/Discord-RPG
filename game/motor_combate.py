@@ -2,6 +2,9 @@
 from data.habilidades_library import HABILIDADES
 import random
 from typing import Tuple, List, Dict
+# --- IMPORTA O NOVO MOTOR DE STATUS ---
+from .motor_status import calcular_dano, calcular_dano_critico
+
 
 def aplicar_efeitos_periodicos(combatente: dict) -> str:
     log = ""
@@ -37,12 +40,6 @@ def esta_incapacitado(combatente: dict) -> Tuple[bool, str]:
             return True, f"\n{nome} está congelado e não pode agir!"
     return False, ""
 
-def calcular_dano(dano_atacante: int, armadura_defensor: int) -> int:
-    reducao = armadura_defensor / (armadura_defensor + 100)
-    dano_final = dano_atacante * (1 - reducao)
-    variacao = dano_final * 0.1
-    return int(random.uniform(dano_final - variacao, dano_final + variacao))
-
 # ---------------------------------------------------------------------------
 # NOVO MOTOR DE COMBATE EM GRUPO
 # ---------------------------------------------------------------------------
@@ -72,21 +69,29 @@ def processar_acao_em_grupo(conjurador: Dict, alvos: List[Dict], habilidade_id: 
     for alvo in alvos:
         nome_alvo = alvo.get('nick', alvo.get('nome'))
         
-        # --- LÓGICA DE DANO ATUALIZADA ---
         # Dano Físico
-        dano_fisico = efeitos_no_alvo.get('DANO', 0)
-        if dano_fisico > 0:
+        if dano_fisico := efeitos_no_alvo.get('DANO', 0):
             dano_base = conjurador['stats'].get('DANO', 0) + dano_fisico if habilidade_id != "basic_attack" else dano_fisico
-            dano_final = calcular_dano(dano_base, alvo['stats'].get('ARMADURA', 0))
+            
+            # --- LÓGICA DE CRÍTICO ADICIONADA AQUI ---
+            dano_apos_crit, foi_critico = calcular_dano_critico(dano_base, conjurador['stats'])
+            if foi_critico:
+                log_acao.append(f"  -> 💥 **ACERTO CRÍTICO!**")
+
+            dano_final = calcular_dano(dano_apos_crit, alvo['stats'].get('ARMADURA', 0))
             alvo['vida_atual'] -= dano_final
             log_acao.append(f"  -> **{nome_alvo}** sofreu `{dano_final}` de dano físico!")
             
-        # Dano Mágico (NOVO)
-        dano_magico = efeitos_no_alvo.get('DANO_MAGICO', 0)
-        if dano_magico > 0:
-            # Dano mágico pode ter sua própria resistência no futuro, por enquanto usa armadura
+        # Dano Mágico
+        if dano_magico := efeitos_no_alvo.get('DANO_MAGICO', 0):
             dano_base = conjurador['stats'].get('DANO_MAGICO', 0) + dano_magico
-            dano_final = calcular_dano(dano_base, alvo['stats'].get('ARMADURA_MAGICA', alvo['stats'].get('ARMADURA', 0)))
+
+            # --- LÓGICA DE CRÍTICO ADICIONADA AQUI ---
+            dano_apos_crit, foi_critico = calcular_dano_critico(dano_base, conjurador['stats'])
+            if foi_critico:
+                log_acao.append(f"  -> 💥 **ACERTO CRÍTICO!**")
+            
+            dano_final = calcular_dano(dano_apos_crit, alvo['stats'].get('ARMADURA_MAGICA', alvo['stats'].get('ARMADURA', 0)))
             alvo['vida_atual'] -= dano_final
             log_acao.append(f"  -> **{nome_alvo}** sofreu `{dano_final}` de dano mágico!")
 

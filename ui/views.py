@@ -20,6 +20,7 @@ from data.dungeon_monsters import TIER_MONSTERS # NOVO IMPORT
 from data.monstros_library import MONSTROS
 from game.stat_calculator import calcular_stats_completos
 from data.minas_library import MINAS
+from game.motor_status import calcular_tempo_final, calcular_chance_final, calcular_quantidade_final
 
 # ---------------------------------------------------------------------------------
 # VIEW DO PERFIL
@@ -930,15 +931,12 @@ class MiningView(ui.View):
         options = []
         for mine_id, mine_info in MINAS.items():
             if mine_info['nivel_minimo_edificio'] <= nivel_mina_cidade:
-                # Calcula o tempo final para cada mina
                 tempo_base_s = mine_info['tempo_s']
-                # --- CORREÇÃO APLICADA AQUI ---
-                # Converte o resultado para um número inteiro para remover os milésimos
-                tempo_final_s = int(tempo_base_s * (1 - eficiencia))
+                # --- AGORA USA A FUNÇÃO CENTRALIZADA ---
+                tempo_final_s = calcular_tempo_final(tempo_base_s, eficiencia)
                 
                 options.append(discord.SelectOption(
-                    label=mine_info['nome'],
-                    value=mine_id,
+                    label=mine_info['nome'], value=mine_id,
                     description=f"Tempo: {timedelta(seconds=tempo_final_s)}"
                 ))
 
@@ -978,7 +976,8 @@ class MiningView(ui.View):
         # Se todas as verificações passaram, inicia a mineração
         eficiencia = atributos_picareta.get('eficiencia', 0)
         tempo_base_s = mine_info['tempo_s']
-        tempo_final_s = tempo_base_s * (1 - eficiencia)
+        # --- AGORA USA A FUNÇÃO CENTRALIZADA ---
+        tempo_final_s = calcular_tempo_final(tempo_base_s, eficiencia)
         termina_em = datetime.now(timezone.utc) + timedelta(seconds=tempo_final_s)
 
         char_ref = db.collection('characters').document(str(self.author.id))
@@ -1018,11 +1017,10 @@ class MiningView(ui.View):
         # Calcula o loot final
         recompensas_coletadas = {}
         for item_info in mine_info['loot_table']:
-            chance_final = item_info['chance_base'] * (1 + poder_coleta)
+            # --- AGORA USA AS FUNÇÕES CENTRALIZADAS ---
+            chance_final = calcular_chance_final(item_info['chance_base'], poder_coleta)
             if random.random() < chance_final:
-                quantidade_range = item_info['quantidade']
-                quantidade_base = random.randint(quantidade_range[0], quantidade_range[1])
-                quantidade_final = quantidade_base + fortuna
+                quantidade_final = calcular_quantidade_final(item_info['quantidade'], fortuna)
                 
                 template_id = item_info['template_id']
                 if quantidade_final > 0:

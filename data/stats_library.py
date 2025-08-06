@@ -16,7 +16,7 @@ STATS = {
     "VIDA_MAXIMA": {"nome": "Vida Máxima", "emoji": "❤️", "category": "DEFESA"},
     "MANA_MAXIMA": {"nome": "Mana Máxima", "emoji": "💧", "category": "DEFESA"},
     "ARMADURA": {"nome": "Armadura", "emoji": "🛡️", "category": "DEFESA"},
-    "ARMADURA_MAGICA": {"nome": "Resistência Mágica", "emoji": "💠", "category": "DEFESA"},
+    "ARMADURA_MAGICA": {"nome": "Armadura Mágica", "emoji": "💠", "category": "DEFESA"},
     "BLOQUEIO_CHANCE": {"nome": "Chance de Bloqueio", "emoji": "✋", "category": "DEFESA", "is_percent": True},
     "DEFESA_BUFF": {"nome": "Bônus de Defesa", "emoji": "🔼", "category": "DEFESA"},
     "ESCUDO": {"nome": "Escudo", "emoji": "💠", "category": "DEFESA"},

@@ -18,7 +18,7 @@ class AdminCog(commands.Cog):
 
     # --- COMANDO CRIARITEM TOTALMENTE REFEITO ---
     @commands.command(name="criaritem")
-    @commands.is_owner()
+    #@commands.is_owner()
     async def criaritem_prefix(self, ctx: commands.Context, template_id: str, id_do_jogo: int, quantidade: int = 1):
         """
         [Dono] Cria um ou mais itens para um jogador.
