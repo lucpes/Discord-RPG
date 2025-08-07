@@ -663,10 +663,17 @@ class BattleView(ui.View):
     
 
 class MundoCog(commands.Cog):
-    # (A classe MundoCog não precisa de alterações)
-    # ...
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        # --- CARREGA O CACHE DE ITENS AQUI TAMBÉM ---
+        self.item_templates_cache = {}
+        try:
+            templates_stream = db.collection('item_templates').stream()
+            for template in templates_stream:
+                self.item_templates_cache[template.id] = template.to_dict()
+            print(f"✅ {len(self.item_templates_cache)} templates de itens carregados no MundoCog.")
+        except Exception as e:
+            print(f"❌ ERRO ao carregar templates de itens no MundoCog: {e}")
 
     # --- COMANDO /EXPLORAR ATUALIZADO ---
     @app_commands.command(name="explorar", description="Explore os arredores em busca de monstros para batalhar.")
@@ -1033,7 +1040,14 @@ class MundoCog(commands.Cog):
         # Para depuração: veja no seu console o que está sendo carregado
         print(f"DEBUG para {interaction.user.name}: Itens Equipados no /mina: {list(equipped_items.keys())}")
         
-        view = MiningView(author=interaction.user, char_data=char_data, cidade_data=cidade_data, equipped_items=equipped_items)
+        # Passa o cache de itens para a View
+        view = MiningView(
+            author=interaction.user, 
+            char_data=char_data, 
+            cidade_data=cidade_data, 
+            equipped_items=equipped_items,
+            item_templates_cache=self.item_templates_cache # Passa o cache
+        )
         embed = view.create_embed()
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         

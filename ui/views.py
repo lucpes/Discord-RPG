@@ -21,6 +21,7 @@ from data.monstros_library import MONSTROS
 from game.stat_calculator import calcular_stats_completos
 from data.minas_library import MINAS
 from game.motor_status import calcular_tempo_final, calcular_chance_final, calcular_quantidade_final
+from game.professions_helper import grant_profession_xp
 
 # ---------------------------------------------------------------------------------
 # VIEW DO PERFIL
@@ -895,13 +896,14 @@ class PortalAbertoView(ui.View):
             
 # --- VIEW DE MINERAÇÃO COM INTERFACE APRIMORADA ---
 class MiningView(ui.View):
-    def __init__(self, author: discord.User, char_data: dict, cidade_data: dict, equipped_items: dict):
+    def __init__(self, author: discord.User, char_data: dict, cidade_data: dict, equipped_items: dict, item_templates_cache: dict):
         super().__init__(timeout=300)
         self.author = author
         self.char_data = char_data
         self.cidade_data = cidade_data
         self.equipped_items = equipped_items
-        
+        self.item_templates_cache = item_templates_cache # Guarda o cache
+
         self.update_view()
 
     def update_view(self):
@@ -923,6 +925,10 @@ class MiningView(ui.View):
         """Cria o menu de seleção com as minas, já mostrando o tempo final com bônus."""
         nivel_mina_cidade = self.cidade_data.get('construcoes', {}).get('MINA', {}).get('nivel', 0)
         
+        # Pega o nível de minerador do jogador
+        profissoes_data = self.char_data.get('profissoes', {})
+        nivel_minerador_jogador = profissoes_data.get('minerador', {}).get('nivel', 1)
+        
         # Pega a eficiência da picareta para calcular o tempo antes mesmo da seleção
         picareta_equipada = self.equipped_items.get("PICARETA")
         atributos_picareta = picareta_equipada['template_data'].get('atributos_ferramenta', {}) if picareta_equipada else {}
@@ -931,13 +937,23 @@ class MiningView(ui.View):
         options = []
         for mine_id, mine_info in MINAS.items():
             if mine_info['nivel_minimo_edificio'] <= nivel_mina_cidade:
-                tempo_base_s = mine_info['tempo_s']
-                # --- AGORA USA A FUNÇÃO CENTRALIZADA ---
-                tempo_final_s = calcular_tempo_final(tempo_base_s, eficiencia)
+                nivel_requerido = mine_info.get('nivel_minerador', 1)
+                pode_minerar = nivel_minerador_jogador >= nivel_requerido
                 
+                tempo_final_s = calcular_tempo_final(mine_info['tempo_s'], eficiencia)
+                
+                label = f"{mine_info['nome']}"
+                description = f"Tempo: {timedelta(seconds=tempo_final_s)}"
+                if not pode_minerar:
+                    label = f"🔒 {mine_info['nome']}"
+                    description = f"Requer Nível de Minerador {nivel_requerido}"
+
+                # --- CORREÇÃO APLICADA AQUI ---
+                # O parâmetro 'disabled' foi removido, pois não é válido aqui.
                 options.append(discord.SelectOption(
-                    label=mine_info['nome'], value=mine_id,
-                    description=f"Tempo: {timedelta(seconds=tempo_final_s)}"
+                    label=label,
+                    value=mine_id,
+                    description=description
                 ))
 
         if not options:
@@ -948,9 +964,19 @@ class MiningView(ui.View):
         return select
 
     async def start_mining(self, interaction: discord.Interaction):
+        """Adiciona uma verificação de segurança final para o nível de profissão."""
         await interaction.response.defer()
         mine_id = interaction.data['values'][0]
         mine_info = MINAS[mine_id]
+
+        # --- VERIFICAÇÃO DE SEGURANÇA ADICIONADA ---
+        profissoes_data = self.char_data.get('profissoes', {})
+        nivel_minerador_jogador = profissoes_data.get('minerador', {}).get('nivel', 1)
+        nivel_requerido = mine_info.get('nivel_minerador', 1)
+
+        if nivel_minerador_jogador < nivel_requerido:
+            await interaction.followup.send(f"❌ Você não tem o nível de Minerador necessário para esta mina! (Requer: {nivel_requerido})", ephemeral=True)
+            return
 
         picareta_equipada = self.equipped_items.get("PICARETA")
         if not picareta_equipada:
@@ -1006,6 +1032,11 @@ class MiningView(ui.View):
 
         mine_info = MINAS[mine_id]
         
+        # --- LÓGICA DE XP DE PROFISSÃO ATUALIZADA ---
+        # Lê o valor de XP da própria mina
+        xp_ganho = mine_info.get('xp_concedido', 25) # Usa 25 como padrão se não encontrar
+        grant_profession_xp(user_id_str, "minerador", xp_ganho)
+        
         # --- CORREÇÃO APLICADA AQUI ---
         # Pega os bônus da picareta a partir do 'template_data'
         picareta_equipada = self.equipped_items.get("PICARETA")
@@ -1048,8 +1079,13 @@ class MiningView(ui.View):
         self.update_view()
         embed = self.create_embed()
         
-        # Monta a mensagem de sucesso
-        recompensas_str = "\n".join([f" > `{qtd}x` {db.collection('item_templates').document(tid).get().to_dict()['nome']}" for tid, qtd in recompensas_coletadas.items()])
+        # --- CORREÇÃO APLICADA AQUI ---
+        # Monta a mensagem de sucesso usando o cache, sem acessar a DB
+        recompensas_str = "\n".join([
+            f" > `{qtd}x` {self.item_templates_cache.get(tid, {}).get('nome', tid)}" 
+            for tid, qtd in recompensas_coletadas.items()
+        ])
+        
         await interaction.followup.send(
             embed=discord.Embed(
                 title="✨ Recompensas Coletadas!",

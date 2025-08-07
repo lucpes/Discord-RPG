@@ -1,5 +1,6 @@
 # game/motor_status.py
 import random
+from typing import Tuple
 
 # --- CÁLCULOS DE COMBATE ---
 
@@ -11,7 +12,26 @@ def calcular_dano(dano_atacante: int, armadura_defensor: int) -> int:
     dano_reduzido = dano_atacante * (1 - reducao)
     variacao = dano_reduzido * 0.1 # Variação de 10% para mais ou para menos
     
-    return int(random.uniform(dano_reduzido - variacao, dano_reduzido + variacao))
+    # Garante que o dano mínimo seja sempre 1, se o ataque for maior que 0
+    return max(1, int(random.uniform(dano_reduzido - variacao, dano_reduzido + variacao)))
+
+# --- FUNÇÃO ADICIONADA ---
+def calcular_dano_critico(dano_base: int, atacante_stats: dict) -> Tuple[int, bool]:
+    """
+    Verifica a chance de crítico e calcula o dano se for bem-sucedido.
+    Retorna o novo valor de dano e um booleano indicando se foi crítico.
+    """
+    crit_chance = atacante_stats.get('CRITICO_CHANCE', 0.0)
+    
+    if random.random() < crit_chance:
+        # Sucesso! Calcula o multiplicador
+        crit_dano_bonus = atacante_stats.get('CRITICO_DANO', 0.0)
+        multiplicador_critico = 1.5 + crit_dano_bonus # Crítico base de 150% + bônus
+        
+        dano_critico = dano_base * multiplicador_critico
+        return int(dano_critico), True
+    
+    return dano_base, False
 
 # --- CÁLCULOS DE COLETA (Mineração, etc.) ---
 

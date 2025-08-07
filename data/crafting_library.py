@@ -5,6 +5,8 @@ CRAFTING_RECIPES = {
     "picareta_ferro_craft": {
         "nome": "Picareta de Ferro",
         "nivel_mesa_trabalho": 1,
+        "nivel_artesao": 1,
+        "xp_concedido": 75,
         "item_criado_template_id": "picareta_ferro",
         "ingredientes": [
             {"template_id": "minerio_ferro", "quantidade": 5},
@@ -17,6 +19,8 @@ CRAFTING_RECIPES = {
     "espada_runica_craft": {
         "nome": "Espada Rúnica",
         "nivel_mesa_trabalho": 5,
+        "nivel_artesao": 10,
+        "xp_concedido": 75,
         "item_criado_template_id": "espada_runica_comum",
         "ingredientes": [
             {"template_id": "barra_de_aco", "quantidade": 8},
@@ -34,6 +38,8 @@ CRAFTING_RECIPES = {
     "pocao_vida_media_craft": {
         "nome": "Poção de Vida Média",
         "nivel_mesa_trabalho": 3,
+        "nivel_artesao": 10,
+        "xp_concedido": 75,
         "item_criado_template_id": "pocao_vida_media",
         "quantidade_criada": 3,
         "ingredientes": [

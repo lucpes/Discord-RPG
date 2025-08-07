@@ -7,6 +7,7 @@ import random
 from data.crafting_library import CRAFTING_RECIPES, ORDERED_RECIPES
 # Importa o gerador de ID de item que já usamos na batalha
 from cogs.item_cog import get_and_increment_item_id
+from game.professions_helper import grant_profession_xp
 
 class CraftingView(ui.View):
     def __init__(self, author: discord.User, char_data: dict, cidade_data: dict, stackable_inventory: dict, item_templates_cache: dict):
@@ -29,32 +30,44 @@ class CraftingView(ui.View):
         recipe_id = ORDERED_RECIPES[self.current_recipe_index]
         recipe = CRAFTING_RECIPES[recipe_id]
         
-        # --- ALTERAÇÃO AQUI: Usa o cache ---
         item_final_template = self.item_templates_cache.get(recipe['item_criado_template_id'], {})
         
         nivel_mesa_cidade = self.cidade_data.get('construcoes', {}).get('MESA_TRABALHO', {}).get('nivel', 0)
+        profissoes_data = self.char_data.get('profissoes', {})
+        nivel_artesao_jogador = profissoes_data.get('artesao', {}).get('nivel', 1)
         
         desc = f"Use os botões para navegar entre as receitas disponíveis.\n"
         desc += f"**Nível da sua Mesa de Trabalho:** `{nivel_mesa_cidade}`"
         embed = discord.Embed(title="🛠️ Mesa de Trabalho", description=desc, color=discord.Color.dark_theme())
 
-        item_emote = item_final_template.get('emote', '📦')
-        item_nome = item_final_template.get('nome', 'Item Desconhecido')
+        # Monta a string de requerimentos
+        nivel_mesa_req = recipe.get('nivel_mesa_trabalho', 1)
+        nivel_artesao_req = recipe.get('nivel_artesao', 1)
+        req_mesa_str = f"`{nivel_mesa_req}` ({'✅' if nivel_mesa_cidade >= nivel_mesa_req else '❌'})"
+        req_artesao_str = f"`{nivel_artesao_req}` ({'✅' if nivel_artesao_jogador >= nivel_artesao_req else '❌'})"
+        
+        # --- FORMATAÇÃO CORRIGIDA AQUI ---
+        # Agora sem abreviações e com quebra de linha
+        requisitos_value = (
+            f"**Requer Nível da Mesa:** {req_mesa_str}\n"
+            f"**Requer Nível de Artesão:** {req_artesao_str}"
+        )
+        
         embed.add_field(
-            name=f"Criar: {item_emote} {item_nome}",
-            value=f"**Requer Mesa Nível:** `{recipe['nivel_mesa_trabalho']}`",
+            name=f"Criar: {item_final_template.get('emote', '📦')} {item_final_template.get('nome')}",
+            value=requisitos_value,
             inline=False
         )
         
-        ingredientes_str = ""
-        pode_criar = nivel_mesa_cidade >= recipe['nivel_mesa_trabalho']
+        # A verificação de 'pode_criar' agora inclui o nível de artesão
+        pode_criar = (nivel_mesa_cidade >= nivel_mesa_req) and (nivel_artesao_jogador >= nivel_artesao_req)
         
+        ingredientes_str = ""
         for ingrediente in recipe['ingredientes']:
             template_id = ingrediente['template_id']
             qtd_necessaria = ingrediente['quantidade']
             qtd_jogador = self.stackable_inventory.get(template_id, 0)
             
-            # --- ALTERAÇÃO AQUI: Usa o cache ---
             emote_ingrediente = self.item_templates_cache.get(template_id, {}).get('emote', '❔')
             nome_ingrediente = self.item_templates_cache.get(template_id, {}).get('nome', template_id)
             
@@ -64,7 +77,7 @@ class CraftingView(ui.View):
             if qtd_jogador < qtd_necessaria:
                 pode_criar = False
         
-        embed.add_field(name="Ingredientes Necessários", value=ingredientes_str, inline=False)
+        embed.add_field(name="Ingredientes Necessários", value=ingredientes_str or "Nenhum", inline=False)
         
         craft_button = discord.utils.get(self.children, custom_id="craft_item")
         if craft_button:
@@ -80,7 +93,7 @@ class CraftingView(ui.View):
         embed = self.create_embed()
         await interaction.response.edit_message(embed=embed, view=self)
 
-    # --- BOTÃO DE CRAFT TOTALMENTE IMPLEMENTADO ---
+    # --- BOTÃO DE CRAFT COM A LÓGICA FINAL ---
     @ui.button(label="Criar Item", style=discord.ButtonStyle.success, emoji="🛠️", custom_id="craft_item")
     async def craft_item(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.defer(ephemeral=True)
@@ -92,7 +105,6 @@ class CraftingView(ui.View):
         recipe = CRAFTING_RECIPES[recipe_id]
 
         # 2. VERIFICAÇÃO DE SEGURANÇA NO SERVIDOR
-        # Recarrega os dados para garantir que nada mudou
         cidade_doc = db.collection('cidades').document(str(interaction.guild.id)).get()
         nivel_mesa_cidade = cidade_doc.to_dict().get('construcoes', {}).get('MESA_TRABALHO', {}).get('nivel', 0)
         inventario_atual = {item.id: item.to_dict().get('quantidade', 0) for item in char_ref.collection('inventario_empilhavel').stream()}
@@ -110,49 +122,55 @@ class CraftingView(ui.View):
             material_ref = char_ref.collection('inventario_empilhavel').document(ingrediente['template_id'])
             batch.update(material_ref, {'quantidade': firestore.Increment(-ingrediente['quantidade'])})
 
-        # 4. ROLAGEM DE RESULTADO (FALHA -> OBRA-PRIMA -> SUCESSO)
+        # 4. ROLAGEM DE RESULTADO E PREPARAÇÃO DA CRIAÇÃO
         feedback_msg = ""
         feedback_color = discord.Color.green()
+        item_criado = False
 
         if random.random() < recipe.get('chance_falha', 0.0):
-            # --- FALHA ---
             feedback_msg = "🔥 **Falha na Criação!**\nVocê perdeu os materiais nesta tentativa."
             feedback_color = discord.Color.dark_red()
         
         elif random.random() < recipe.get('chance_obra_prima', 0.0):
-            # --- SUCESSO CRÍTICO (OBRA-PRIMA) ---
-            if 'quantidade_obra_prima' in recipe: # Obra-prima de consumível
+            item_criado = True
+            if 'quantidade_obra_prima' in recipe:
                 qtd = recipe['quantidade_obra_prima']
                 item_id = recipe['item_criado_template_id']
                 item_ref = char_ref.collection('inventario_empilhavel').document(item_id)
                 batch.set(item_ref, {'quantidade': firestore.Increment(qtd)}, merge=True)
                 nome_item = self.item_templates_cache[item_id]['nome']
                 feedback_msg = f"✨ **Obra-Prima!**\nVocê criou com maestria e produziu **{qtd}x {nome_item}**!"
-            else: # Obra-prima de equipamento
+            else:
                 item_id = recipe['item_obra_prima_template_id']
                 self._create_unique_item(user_id_str, item_id, batch)
                 nome_item = self.item_templates_cache[item_id]['nome']
                 feedback_msg = f"✨ **Obra-Prima!**\nVocê forjou um item de qualidade excepcional: **{nome_item}**!"
         
         else:
-            # --- SUCESSO NORMAL ---
+            item_criado = True
             item_id = recipe['item_criado_template_id']
-            if 'quantidade_criada' in recipe: # Sucesso normal de consumível
+            if 'quantidade_criada' in recipe:
                 qtd = recipe['quantidade_criada']
                 item_ref = char_ref.collection('inventario_empilhavel').document(item_id)
                 batch.set(item_ref, {'quantidade': firestore.Increment(qtd)}, merge=True)
                 nome_item = self.item_templates_cache[item_id]['nome']
                 feedback_msg = f"✅ **Sucesso!**\nVocê criou **{qtd}x {nome_item}**."
-            else: # Sucesso normal de equipamento
+            else:
                 self._create_unique_item(user_id_str, item_id, batch)
                 nome_item = self.item_templates_cache[item_id]['nome']
                 feedback_msg = f"✅ **Sucesso!**\nVocê criou **1x {nome_item}**."
 
-        # 5. EXECUTA AS MUDANÇAS E ATUALIZA A INTERFACE
+        # 5. CONCEDE XP DE PROFISSÃO SE O CRAFT FOI BEM-SUCEDIDO
+        if item_criado:
+            # --- CORREÇÃO APLICADA AQUI ---
+            # A profissão da Mesa de Trabalho é Artesão
+            xp_ganho = recipe.get('xp_concedido', 50)
+            grant_profession_xp(user_id_str, "artesao", xp_ganho)
+
+        # 6. EXECUTA AS MUDANÇAS E ATUALIZA A INTERFACE
         batch.commit()
         await interaction.followup.send(embed=discord.Embed(description=feedback_msg, color=feedback_color), ephemeral=True)
 
-        # Recarrega o inventário e atualiza a view
         self.stackable_inventory = {item.id: item.to_dict().get('quantidade', 0) for item in char_ref.collection('inventario_empilhavel').stream()}
         embed = self.create_embed()
         await interaction.edit_original_response(embed=embed, view=self)

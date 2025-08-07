@@ -88,7 +88,7 @@ CONSTRUCOES = {
     },
     "PORTAL_ABISSAL": {
         "nome": "Portal Abissal", "emoji": "🌀",
-        "categoria": "SERVICOS",
+        "categoria": "RECURSOS",
         "descricao": "Uma fenda instável para outras dimensões. Níveis mais altos permitem o acesso a tiers de maior perigo e recompensa.",
         "niveis": [
             # Custo para ir do Nível 0 -> 1 (construir)
@@ -97,6 +97,33 @@ CONSTRUCOES = {
             {"custo": {"MOEDAS": 25000}, "tempo_s": 14400, "frequencia_h": 5, "duracao_min": 35},
             # Custo para ir do Nível 2 -> 3
             {"custo": {"MOEDAS": 75000}, "tempo_s": 28800, "frequencia_h": 4, "duracao_min": 40},
+        ]
+    },
+    "FAZENDA": {
+        "nome": "Fazenda", "emoji": "🧑‍🌾",
+        "categoria": "RECURSOS",
+        "descricao": "Gera uma renda passiva de moedas para o tesouro da cidade.",
+        "niveis": [
+            {"custo": {"MOEDAS": 2000}, "tempo_s": 1800, "renda_por_hora": 50},
+            {"custo": {"MOEDAS": 8000}, "tempo_s": 7200, "renda_por_hora": 120},
+        ]
+    },
+    "FORNALHA": {
+        "nome": "Fornalha", "emoji": "🔥",
+        "categoria": "CRIACAO",
+        "descricao": "Permite refinar materiais brutos, como minérios, em barras de metal prontas para a forja.",
+        "niveis": [
+            {"custo": {"MOEDAS": 1500}, "tempo_s": 2700},
+            {"custo": {"MOEDAS": 6000}, "tempo_s": 10800},
+        ]
+    },
+    "MESA_ENCANTAMENTO": {
+        "nome": "Mesa de Encantamento", "emoji": "✨",
+        "categoria": "SERVICOS",
+        "descricao": "Onde magos e artesãos podem imbuir equipamentos com poderes mágicos.",
+        "niveis": [
+            {"custo": {"MOEDAS": 10000}, "tempo_s": 21600},
+            {"custo": {"MOEDAS": 50000}, "tempo_s": 86400},
         ]
     },
 }

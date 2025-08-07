@@ -16,6 +16,31 @@ PROFISSOES = {
                 "passivas": {"fortuna": 2, "eficiencia": 0.02}, # +2% de eficiência
                 "desbloqueios": ["Receita: Barra de Cobre"]
             }},
+            {"xp_para_upar": 1200, "recompensas": {
+                "passivas": {"fortuna": 2, "eficiencia": 0.02}, # +2% de eficiência
+                "desbloqueios": ["Receita: Barra de Cobre"]
+            }},
+        ]
+    },
+    "lenhador": {
+        "nome": "Lenhador",
+        "emoji": "🪓",
+        "descricao": "Especialista na coleta de madeiras e folhas.",
+        "niveis": [
+            # Nível 1 para 2
+            {"xp_para_upar": 500, "recompensas": {
+                "passivas": {"fortuna": 1},
+                "desbloqueios": ["Acesso a Minas de Cobre"]
+            }},
+            # Nível 2 para 3
+            {"xp_para_upar": 1200, "recompensas": {
+                "passivas": {"fortuna": 2, "eficiencia": 0.02}, # +2% de eficiência
+                "desbloqueios": ["Receita: Barra de Cobre"]
+            }},
+            {"xp_para_upar": 1200, "recompensas": {
+                "passivas": {"fortuna": 2, "eficiencia": 0.02}, # +2% de eficiência
+                "desbloqueios": ["Receita: Barra de Cobre"]
+            }},
         ]
     },
     "ferreiro": {
@@ -30,6 +55,19 @@ PROFISSOES = {
             }},
         ]
     },
+    "artesao": {
+        "nome": "Artesão",
+        "emoji": "🪚", # Emoji de paleta de artista, mais genérico
+        "descricao": "Mestre na criação de diversos itens, desde vestes de couro a acessórios encantados.",
+        "niveis": [
+            # Nível 1 para 2
+            {"xp_para_upar": 800, "recompensas": {
+                "passivas": {"chance_obra_prima": 0.01}, # +1% de chance de obra-prima
+                "desbloqueios": ["Receitas de Itens de Couro"]
+            }},
+            # ...
+        ]
+    },
     "alquimista": {
         "nome": "Alquimista",
         "emoji": "🧪",
@@ -41,7 +79,19 @@ PROFISSOES = {
                 "desbloqueios": ["Receita: Poção de Força Fraca"]
             }},
         ]
-    }
+    },
+    "encantador": {
+        "nome": "Encantador",
+        "emoji": "📖",
+        "descricao": "Especialista em encantamentos de livros e equipamentos diversos.",
+        "niveis": [
+            # Nível 1 para 2
+            {"xp_para_upar": 400, "recompensas": {
+                "passivas": {"quantidade_obra_prima_pocao": 1}, # Cria +1 poção em um craft perfeito
+                "desbloqueios": ["Receita: Poção de Força Fraca"]
+            }},
+        ]
+    },
 }
 
 # Cria uma lista ordenada de IDs para o Select menu
