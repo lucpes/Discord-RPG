@@ -78,7 +78,7 @@ class TasksCog(commands.Cog):
                 print(f"❌ Erro ao processar notificação de mineração para o jogador {doc.id}: {e}")
 
     # --- TAREFA DE RENDA ATUALIZADA ---
-    @tasks.loop(minutes=2) # Alterado de 1 para 24 horas
+    @tasks.loop(hours=24) # Alterado de 1 para 24 horas
     async def processar_renda_cidades(self):
         """Calcula e adiciona a renda passiva ao tesouro de todas as cidades, uma vez ao dia."""
         print(f"[{datetime.now()}] Iniciando ciclo de processamento de renda das cidades...")

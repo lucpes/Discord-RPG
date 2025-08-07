@@ -995,20 +995,33 @@ class MundoCog(commands.Cog):
     async def mina(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         user_id_str = str(interaction.user.id)
+        cidade_atual_id = str(interaction.guild.id)
 
+        # 1. Verifica se o personagem existe
         char_ref = db.collection('characters').document(user_id_str)
         char_doc = char_ref.get()
-        cidade_ref = db.collection('cidades').document(str(interaction.guild.id))
-        cidade_doc = cidade_ref.get()
-
         if not char_doc.exists:
-            await interaction.followup.send("Você precisa ter um personagem para minerar. Use `/perfil`.", ephemeral=True)
-            return
-        if not cidade_doc.exists:
-            await interaction.followup.send("A cidade ainda não foi fundada. A mineração não está disponível.", ephemeral=True)
+            await interaction.followup.send("Você precisa ter um personagem para minerar.", ephemeral=True)
             return
 
         char_data = char_doc.to_dict()
+
+        # 2. VERIFICA A LOCALIZAÇÃO DO JOGADOR
+        if char_data.get('localizacao_id') != cidade_atual_id:
+            await interaction.followup.send(
+                f"Você não está em **{interaction.guild.name}** para usar a Mina daqui!\n"
+                f"Use o comando `/viajar` para vir para esta cidade.",
+                ephemeral=True
+            )
+            return
+
+        # 3. Verifica se a cidade existe
+        cidade_ref = db.collection('cidades').document(cidade_atual_id)
+        cidade_doc = cidade_ref.get()
+        if not cidade_doc.exists:
+            await interaction.followup.send(f"A cidade de **{interaction.guild.name}** ainda não foi fundada.", ephemeral=True)
+            return
+        
         cidade_data = cidade_doc.to_dict()
         
         equipped_items = {}

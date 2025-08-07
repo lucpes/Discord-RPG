@@ -93,6 +93,27 @@ TEMPLATES_PARA_UPLOAD = {
         "raridade": "COMUM",
         "descricao": "Gravento comum."
     },
+    "carvao": {
+        "nome": "Carvão",
+        "emote": "🪨",
+        "tipo": "MATERIAL",
+        "raridade": "COMUM",
+        "descricao": "Carvão comum."
+    },
+    "barra_ferro": {
+        "nome": "Barra de Ferro",
+        "emote": "🪨",
+        "tipo": "MATERIAL",
+        "raridade": "COMUM",
+        "descricao": "Barra de ferro comum."
+    },
+    "barra_aco": {
+        "nome": "Barra de Aço",
+        "emote": "🪨",
+        "tipo": "MATERIAL",
+        "raridade": "COMUM",
+        "descricao": "Barra de aço."
+    },
     
     # --- FERRAMENTAS ---
     "picareta_ferro": {
