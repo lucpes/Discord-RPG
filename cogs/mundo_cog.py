@@ -678,6 +678,9 @@ class MundoCog(commands.Cog):
     # --- COMANDO /EXPLORAR ATUALIZADO ---
     @app_commands.command(name="explorar", description="Explore os arredores em busca de monstros para batalhar.")
     async def explorar(self, interaction: discord.Interaction):
+        if interaction.guild is None:
+            await interaction.response.send_message("❌ Este comando só pode ser usado dentro de um servidor (cidade).", ephemeral=True)
+            return
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
         user_id_str = str(user_id)
@@ -754,6 +757,9 @@ class MundoCog(commands.Cog):
     # --- NOVO COMANDO /VIAJAR ---
     @app_commands.command(name="viajar", description="Viaje para a cidade atual (o servidor onde o comando é usado).")
     async def viajar(self, interaction: discord.Interaction):
+        if interaction.guild is None:
+            await interaction.response.send_message("❌ Você não pode viajar para seu espaço pessoal.", ephemeral=True)
+            return
         await interaction.response.defer(ephemeral=True)
         
         user_id_str = str(interaction.user.id)
@@ -781,7 +787,7 @@ class MundoCog(commands.Cog):
         })
 
         embed = discord.Embed(
-            title="🛶 Viagem Concluída!",
+            title="🧭 Viagem Concluída!",
             description=f"Você chegou à cidade de **{cidade_alvo_nome}**.\nSua localização foi atualizada.",
             color=discord.Color.blue()
         )
@@ -789,21 +795,39 @@ class MundoCog(commands.Cog):
         
         await interaction.followup.send(embed=embed, ephemeral=True)
         
-    # --- COMANDO /CIDADE COM CATEGORIAS LADO A LADO ---
-    @app_commands.command(name="cidade", description="Mostra as informações da cidade atual.")
+    # --- COMANDO /CIDADE ATUALIZADO ---
+    @app_commands.command(name="cidade", description="Mostra as informações da cidade em que você está.")
     async def cidade(self, interaction: discord.Interaction):
+        if interaction.guild is None:
+            await interaction.response.send_message("❌ Este comando só pode ser usado dentro de um servidor (cidade).", ephemeral=True)
+            return
         await interaction.response.defer(ephemeral=True)
-        
-        cidade_id = str(interaction.guild.id)
-        cidade_ref = db.collection('cidades').document(cidade_id)
-        cidade_doc = cidade_ref.get()
+        user_id_str = str(interaction.user.id)
+        cidade_atual_id = str(interaction.guild.id)
 
-        if not cidade_doc.exists:
+        # 1. Verifica se o personagem existe
+        char_ref = db.collection('characters').document(user_id_str)
+        char_doc = char_ref.get()
+        if not char_doc.exists:
+            await interaction.followup.send("Você precisa ter um personagem para ver as informações da cidade.", ephemeral=True)
+            return
+        
+        char_data = char_doc.to_dict()
+
+        # 2. VERIFICA A LOCALIZAÇÃO DO JOGADOR
+        if char_data.get('localizacao_id') != cidade_atual_id:
             await interaction.followup.send(
-                "Este lugar parece selvagem e não civilizado...\n"
-                "*Um administrador do servidor precisa usar o comando `/governar` para fundar a cidade.*",
+                f"Você não está em **{interaction.guild.name}** para ver os detalhes desta cidade!\n"
+                f"Use o comando `/viajar` para vir para cá.",
                 ephemeral=True
             )
+            return
+
+        # 3. Se o jogador está na cidade, continua a lógica original
+        cidade_ref = db.collection('cidades').document(cidade_atual_id)
+        cidade_doc = cidade_ref.get()
+        if not cidade_doc.exists:
+            await interaction.followup.send(f"A cidade de **{interaction.guild.name}** ainda não foi fundada. Um administrador precisa usar `/governar`.", ephemeral=True)
             return
 
         cidade_data = cidade_doc.to_dict()
@@ -895,12 +919,36 @@ class MundoCog(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
         
         
+    # --- COMANDO /GOVERNAR ATUALIZADO ---
     @app_commands.command(name="governar", description="Funde a cidade ou abre o painel de governo.")
     async def governar(self, interaction: discord.Interaction):
+        if interaction.guild is None:
+            await interaction.response.send_message("❌ Este comando só pode ser usado dentro de um servidor (cidade).", ephemeral=True)
+            return
         await interaction.response.defer(ephemeral=True)
+        user_id_str = str(interaction.user.id)
+        cidade_atual_id = str(interaction.guild.id)
 
-        cidade_id = str(interaction.guild.id)
-        cidade_ref = db.collection('cidades').document(cidade_id)
+        # 1. Verifica se o personagem existe
+        char_ref = db.collection('characters').document(user_id_str)
+        char_doc = char_ref.get()
+        if not char_doc.exists:
+            await interaction.followup.send("Você precisa ter um personagem para interagir com o governo.", ephemeral=True)
+            return
+            
+        char_data = char_doc.to_dict()
+
+        # 2. VERIFICA A LOCALIZAÇÃO DO JOGADOR
+        if char_data.get('localizacao_id') != cidade_atual_id:
+            await interaction.followup.send(
+                f"Você não está em **{interaction.guild.name}** para acessar o painel de governo daqui!\n"
+                f"Use o comando `/viajar` para vir para esta cidade.",
+                ephemeral=True
+            )
+            return
+
+        # 3. Se o jogador está na cidade, continua a lógica original
+        cidade_ref = db.collection('cidades').document(cidade_atual_id)
         cidade_doc = cidade_ref.get()
 
         if not cidade_doc.exists:
@@ -912,6 +960,19 @@ class MundoCog(commands.Cog):
             if not user_game_id:
                 await interaction.followup.send("❌ Você precisa se registrar com `/registrar` primeiro para fundar uma cidade.", ephemeral=True)
                 return
+            
+            # --- VERIFICAÇÃO DE GOVERNADOR ADICIONADA AQUI ---
+            cidades_governadas_query = db.collection('cidades').where('governador_id', '==', user_game_id).limit(1).stream()
+            cidade_ja_governada = next(cidades_governadas_query, None)
+
+            if cidade_ja_governada:
+                nome_cidade_existente = cidade_ja_governada.to_dict().get('nome', 'uma cidade desconhecida')
+                await interaction.followup.send(
+                    f"❌ Você não pode fundar uma nova cidade, pois já é o governador de **{nome_cidade_existente}**!",
+                    ephemeral=True
+                )
+                return
+            # --- FIM DA VERIFICAÇÃO ---
 
             construcoes_iniciais = {}
             for building_id in CONSTRUCOES.keys():
@@ -993,6 +1054,9 @@ class MundoCog(commands.Cog):
             
     @app_commands.command(name="mina", description="Acesse a área de mineração para coletar recursos.")
     async def mina(self, interaction: discord.Interaction):
+        if interaction.guild is None:
+            await interaction.response.send_message("❌ Este comando só pode ser usado dentro de um servidor (cidade).", ephemeral=True)
+            return
         await interaction.response.defer(ephemeral=True)
         user_id_str = str(interaction.user.id)
         cidade_atual_id = str(interaction.guild.id)

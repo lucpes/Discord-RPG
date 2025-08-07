@@ -19,6 +19,9 @@ class FornalhaCog(commands.Cog):
 
     @app_commands.command(name="fornalha", description="Use a fornalha para refinar materiais brutos.")
     async def fornalha(self, interaction: discord.Interaction):
+        if interaction.guild is None:
+            await interaction.response.send_message("❌ Este comando só pode ser usado dentro de um servidor (cidade).", ephemeral=True)
+            return
         await interaction.response.defer(ephemeral=True)
         user_id_str = str(interaction.user.id)
         cidade_atual_id = str(interaction.guild.id)
