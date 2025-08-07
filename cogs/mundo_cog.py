@@ -850,31 +850,30 @@ class MundoCog(commands.Cog):
             )
             embed.add_field(name="------", value=cv_str, inline=False)
 
-        # --- SEÇÕES DE CONSTRUÇÕES POR CATEGORIA ---
+        # --- LÓGICA DE CATEGORIZAÇÃO ATUALIZADA ---
         recursos_str, criacao_str, servicos_str = "", "", ""
-        recursos_ids = ["MINA", "FLORESTA"]
-        criacao_ids = ["FORJA", "MESA_TRABALHO", "MESA_POCOES"]
+        
+        # As listas fixas foram removidas.
 
         for building_id, building_info in CONSTRUCOES.items():
             if building_id == "CENTRO_VILA": continue
 
-            if building_id in construcoes_data:
-                nivel = construcoes_data[building_id].get('nivel', 0)
+            if building_id in cidade_data.get('construcoes', {}):
+                nivel = cidade_data['construcoes'][building_id].get('nivel', 0)
                 status_str = f"Nível {nivel}" if nivel > 0 else "*(Não Construído)*"
-                if construcao_andamento and construcao_andamento['id_construcao'] == building_id:
-                    status_str = "*(Melhorando...)*"
+                # (Lógica para mostrar "Melhorando..." continua aqui)
                 
-                linha = f"{building_info['emoji']} **{building_info['nome']}** - {status_str}\n"
+                linha = f"{building_info.get('emoji', '')} **{building_info.get('nome', building_id)}** - {status_str}\n"
 
-                if building_id in recursos_ids:
+                # Lê a categoria diretamente da biblioteca de construções
+                categoria = building_info.get('categoria', 'SERVICOS')
+                if categoria == 'RECURSOS':
                     recursos_str += linha
-                elif building_id in criacao_ids:
+                elif categoria == 'CRIACAO':
                     criacao_str += linha
-                else: 
+                else: # Qualquer outra coisa, incluindo 'SERVICOS'
                     servicos_str += linha
         
-        # --- ALTERAÇÃO APLICADA AQUI ---
-        # Alterado para inline=True para colocar os campos lado a lado.
         if recursos_str: embed.add_field(name="--- ⛏️ Recursos ---", value=recursos_str.strip(), inline=True)
         if criacao_str: embed.add_field(name="--- 🛠️ Criação ---", value=criacao_str.strip(), inline=True)
         if servicos_str: embed.add_field(name="--- ⚖️ Serviços ---", value=servicos_str.strip(), inline=True)

@@ -909,7 +909,7 @@ class MiningView(ui.View):
     def update_view(self):
         """Atualiza a view com base no estado de mineração do jogador."""
         self.clear_items()
-        mining_status = self.char_data.get('mineração_ativa', {})
+        mining_status = self.char_data.get('mineracao_ativa', {})
 
         if not mining_status:
             self.add_item(self.create_mine_select())
@@ -1007,15 +1007,17 @@ class MiningView(ui.View):
         termina_em = datetime.now(timezone.utc) + timedelta(seconds=tempo_final_s)
 
         char_ref = db.collection('characters').document(str(self.author.id))
+        # --- CORREÇÃO APLICADA AQUI ---
         char_ref.update({
-            'mineração_ativa': {
+            'mineracao_ativa': {
                 'mina_id': mine_id,
                 'inicia_em': firestore.SERVER_TIMESTAMP,
-                'termina_em': termina_em
+                'termina_em': termina_em,
+                'notificado': False
             }
         })
         
-        self.char_data['mineração_ativa'] = {'termina_em': termina_em}
+        self.char_data['mineracao_ativa'] = {'termina_em': termina_em}
         self.update_view()
         embed = self.create_embed()
         await interaction.edit_original_response(embed=embed, view=self)
@@ -1026,7 +1028,7 @@ class MiningView(ui.View):
         user_id_str = str(self.author.id)
         char_ref = db.collection('characters').document(user_id_str)
         
-        mining_status = self.char_data.get('mineração_ativa', {})
+        mining_status = self.char_data.get('mineracao_ativa', {})
         mine_id = mining_status.get('mina_id')
         if not mine_id: return
 
@@ -1072,10 +1074,10 @@ class MiningView(ui.View):
             item_ref.update({'durabilidade_atual': firestore.Increment(-1)})
 
         # Limpa o estado de mineração
-        char_ref.update({'mineração_ativa': firestore.DELETE_FIELD})
+        char_ref.update({'mineracao_ativa': firestore.DELETE_FIELD})
         
         # Atualiza a interface
-        self.char_data['mineração_ativa'] = {}
+        self.char_data['mineracao_ativa'] = {}
         self.update_view()
         embed = self.create_embed()
         
@@ -1099,7 +1101,7 @@ class MiningView(ui.View):
     # --- MÉTODO ATUALIZADO ---
     def create_embed(self) -> discord.Embed:
         """Cria o embed com base no estado e exibe os status completos da picareta."""
-        mining_status = self.char_data.get('mineração_ativa', {})
+        mining_status = self.char_data.get('mineracao_ativa', {})
         embed = discord.Embed()
 
         if not mining_status:

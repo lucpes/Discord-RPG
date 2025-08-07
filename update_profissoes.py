@@ -7,43 +7,46 @@ from data.profissoes_library import PROFISSOES # Importa nossa lista de profiss�
 print("--- Iniciando script de atualização de profissões ---")
 
 try:
-    # 1. Busca todos os documentos da coleção 'characters'
     chars_ref = db.collection('characters')
     all_characters = chars_ref.stream()
 
-    # Cria um batch para executar todas as atualizações de uma vez
     batch = db.batch()
     updated_count = 0
+    total_processed = 0
 
-    # 2. Itera sobre cada personagem
+    # Itera sobre cada personagem
     for char_doc in all_characters:
+        total_processed += 1
         char_data = char_doc.to_dict()
         
-        # 3. Verifica se o personagem já tem o campo 'profissoes'
-        if 'profissoes' not in char_data:
-            print(f"Atualizando personagem ID: {char_doc.id}...")
-            
-            # 4. Cria o mapa de profissões padrão
-            profissoes_padrao = {}
-            for prof_id in PROFISSOES.keys():
-                profissoes_padrao[prof_id] = {
-                    "nivel": 1,
-                    "xp": 0
-                }
-            
-            # 5. Adiciona a atualização ao batch
+        # Pega as profissões que o jogador já tem, ou cria um dicionário vazio se não tiver nenhuma.
+        profissoes_jogador = char_data.get('profissoes', {})
+        
+        # --- LÓGICA CORRIGIDA AQUI ---
+        # Verifica se alguma profissão da biblioteca está a faltar no jogador
+        profissoes_faltando = False
+        for prof_id in PROFISSOES.keys():
+            if prof_id not in profissoes_jogador:
+                # Se uma profissão está a faltar, adiciona-a com os valores padrão
+                print(f"  -> Adicionando profissão '{prof_id}' para o jogador {char_doc.id}...")
+                profissoes_jogador[prof_id] = {"nivel": 1, "xp": 0}
+                profissoes_faltando = True
+
+        # Se encontrámos alguma profissão em falta, preparamos a atualização
+        if profissoes_faltando:
+            print(f"Atualizando personagem ID: {char_doc.id} com novas profissões.")
             char_ref_to_update = chars_ref.document(char_doc.id)
-            batch.update(char_ref_to_update, {'profissoes': profissoes_padrao})
+            batch.update(char_ref_to_update, {'profissoes': profissoes_jogador})
             updated_count += 1
         else:
-            print(f"Personagem ID: {char_doc.id} já possui profissões. Ignorando.")
+            print(f"Personagem ID: {char_doc.id} já tem todas as profissões. Ignorando.")
 
-    # 6. Executa todas as atualizações no Firebase
+    # Executa todas as atualizações no Firebase
     if updated_count > 0:
         batch.commit()
-        print(f"\n✅ Operação concluída! {updated_count} personagem(ns) foram atualizados com o novo sistema de profissões.")
+        print(f"\n✅ Operação concluída! {updated_count}/{total_processed} personagem(ns) foram atualizados com as novas profissões.")
     else:
-        print("\n✅ Operação concluída! Nenhum personagem precisou ser atualizado.")
+        print(f"\n✅ Operação concluída! Nenhum personagem precisou ser atualizado. ({total_processed} processados)")
 
 except Exception as e:
     print(f"\n❌ Ocorreu um erro durante a atualização: {e}")
