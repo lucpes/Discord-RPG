@@ -4,8 +4,8 @@ from discord import app_commands
 from discord.ext import commands
 from firebase_config import db
 
-# Importa as ferramentas do seu stats_library e o novo helper
-from data.stats_library import STATS, STAT_CATEGORIES
+# Importa as ferramentas corretas
+from data.stats_library import STATS, STAT_CATEGORIES, format_stat # Importa a função format_stat
 from utils.character_helpers import load_player_sheet
 from game.stat_calculator import calcular_stats_completos
 
@@ -40,21 +40,17 @@ class StatsCog(commands.Cog):
         stats_by_category = {category: [] for category in STAT_CATEGORIES}
         
         for stat_id, stat_info in STATS.items():
-            # Verifica se o personagem possui aquele status e se ele tem uma categoria para ser exibido
-            if stat_id in stats_finais and 'category' in stat_info and stats_finais[stat_id] > 0:
+            if stat_id in stats_finais and 'category' in stat_info and stats_finais[stat_id] != 0:
                 valor = stats_finais[stat_id]
                 
-                # Formata como porcentagem se necessário
-                if stat_info.get("is_percent"):
-                    # Multiplica por 100 para exibir como porcentagem real
-                    valor_str = f"{valor * 100:.1f}%" 
-                else:
-                    valor_str = f"{valor:,}"
+                # --- CORREÇÃO APLICADA AQUI ---
+                # Agora usa a função de formatação central do stats_library.py
+                # que já formata corretamente como "25%" em vez de "25.0%"
+                # A linha foi simplificada, pois format_stat já faz todo o trabalho.
+                line = format_stat(stat_id, valor)
                 
-                line = f"{stat_info['emoji']} **{stat_info['nome']}:** `{valor_str}`"
                 stats_by_category[stat_info['category']].append(line)
 
-        # Adiciona os campos ao embed na ordem definida em STAT_CATEGORIES
         for category in STAT_CATEGORIES:
             if stats_by_category[category]:
                 embed.add_field(
@@ -62,9 +58,6 @@ class StatsCog(commands.Cog):
                     value="\n".join(stats_by_category[category]),
                     inline=True
                 )
-        
-        # Adiciona um campo para status sem categoria, se houver algum
-        # (Isso é opcional, mas pode ser útil para depuração)
         
         await interaction.followup.send(embed=embed, ephemeral=True)
 

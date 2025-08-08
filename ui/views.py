@@ -896,14 +896,20 @@ class PortalAbertoView(ui.View):
             
 # --- VIEW DE MINERAÇÃO COM INTERFACE APRIMORADA ---
 class MiningView(ui.View):
-    def __init__(self, author: discord.User, char_data: dict, cidade_data: dict, equipped_items: dict, item_templates_cache: dict):
+    def __init__(self, author: discord.User, char_data: dict, cidade_data: dict, equipped_items: list, item_templates_cache: dict, stats_finais: dict):
         super().__init__(timeout=300)
         self.author = author
         self.char_data = char_data
         self.cidade_data = cidade_data
-        self.equipped_items = equipped_items
-        self.item_templates_cache = item_templates_cache # Guarda o cache
-
+        # --- CORREÇÃO APLICADA AQUI ---
+        # Converte a lista de itens equipados num dicionário para fácil acesso
+        self.equipped_items_dict = {
+            item['template_data'].get('slot'): item 
+            for item in equipped_items
+        }
+        self.item_templates_cache = item_templates_cache
+        self.stats_finais = stats_finais
+        
         self.update_view()
 
     def update_view(self):
@@ -930,9 +936,9 @@ class MiningView(ui.View):
         nivel_minerador_jogador = profissoes_data.get('minerador', {}).get('nivel', 1)
         
         # Pega a eficiência da picareta para calcular o tempo antes mesmo da seleção
-        picareta_equipada = self.equipped_items.get("PICARETA")
+        picareta_equipada = self.equipped_items_dict.get("PICARETA")
         atributos_picareta = picareta_equipada['template_data'].get('atributos_ferramenta', {}) if picareta_equipada else {}
-        eficiencia = atributos_picareta.get('eficiencia', 0)
+        eficiencia = self.stats_finais.get('eficiencia_mineracao', 0)
         
         options = []
         for mine_id, mine_info in MINAS.items():
@@ -940,7 +946,8 @@ class MiningView(ui.View):
                 nivel_requerido = mine_info.get('nivel_minerador', 1)
                 pode_minerar = nivel_minerador_jogador >= nivel_requerido
                 
-                tempo_final_s = calcular_tempo_final(mine_info['tempo_s'], eficiencia)
+                tempo_base_s = mine_info['tempo_s']
+                tempo_final_s = calcular_tempo_final(tempo_base_s, eficiencia)
                 
                 label = f"{mine_info['nome']}"
                 description = f"Tempo: {timedelta(seconds=tempo_final_s)}"
@@ -978,7 +985,7 @@ class MiningView(ui.View):
             await interaction.followup.send(f"❌ Você não tem o nível de Minerador necessário para esta mina! (Requer: {nivel_requerido})", ephemeral=True)
             return
 
-        picareta_equipada = self.equipped_items.get("PICARETA")
+        picareta_equipada = self.equipped_items_dict.get("PICARETA")
         if not picareta_equipada:
             await interaction.followup.send("❌ Você precisa ter uma picareta equipada para minerar!", ephemeral=True)
             return
@@ -1000,7 +1007,7 @@ class MiningView(ui.View):
             return
             
         # Se todas as verificações passaram, inicia a mineração
-        eficiencia = atributos_picareta.get('eficiencia', 0)
+        eficiencia = atributos_picareta.get('eficiencia_mineracao', 0)
         tempo_base_s = mine_info['tempo_s']
         # --- AGORA USA A FUNÇÃO CENTRALIZADA ---
         tempo_final_s = calcular_tempo_final(tempo_base_s, eficiencia)
@@ -1041,11 +1048,11 @@ class MiningView(ui.View):
         
         # --- CORREÇÃO APLICADA AQUI ---
         # Pega os bônus da picareta a partir do 'template_data'
-        picareta_equipada = self.equipped_items.get("PICARETA")
+        picareta_equipada = self.equipped_items_dict.get("PICARETA")
         atributos_picareta = picareta_equipada['template_data'].get('atributos_ferramenta', {}) if picareta_equipada else {}
         
-        poder_coleta = atributos_picareta.get('poder_coleta', 0)
-        fortuna = atributos_picareta.get('fortuna', 0)
+        poder_coleta = atributos_picareta.get('poder_coleta_mineracao', 0)
+        fortuna = atributos_picareta.get('fortuna_mineracao', 0)
 
         # Calcula o loot final
         recompensas_coletadas = {}
@@ -1121,7 +1128,7 @@ class MiningView(ui.View):
                 embed.color=discord.Color.orange()
         
         # Exibe os status completos da picareta equipada
-        picareta_equipada = self.equipped_items.get("PICARETA")
+        picareta_equipada = self.equipped_items_dict.get("PICARETA")
         if picareta_equipada:
             template_data = picareta_equipada['template_data']
             instance_data = picareta_equipada['instance_data']
@@ -1136,7 +1143,7 @@ class MiningView(ui.View):
                 if attr != 'durabilidade_max':
                     attr_name = attr.replace('_', ' ').capitalize()
                     # Formata como porcentagem se for eficiencia ou poder de coleta
-                    if attr in ['eficiencia', 'poder_coleta']:
+                    if attr in ['eficiencia_mineracao', 'poder_coleta_mineracao']:
                          stats_list.append(f"{attr_name}: {value:.0%}")
                     else:
                         stats_list.append(f"{attr_name}: {value}")

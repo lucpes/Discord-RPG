@@ -21,11 +21,12 @@ STATS = {
     "DEFESA_BUFF": {"nome": "Bônus de Defesa", "emoji": "🔼", "category": "DEFESA"},
     "ESCUDO": {"nome": "Escudo", "emoji": "💠", "category": "DEFESA"},
     
-    # --- STATUS DE COLETA (NOVOS) ---
-    "poder_coleta": {"nome": "Poder de Coleta", "emoji": "🍀", "category": "COLETA", "is_percent": True},
-    "eficiencia": {"nome": "Eficiência", "emoji": "⚡", "category": "COLETA", "is_percent": True},
-    "fortuna": {"nome": "Fortuna", "emoji": "💰", "category": "COLETA"},
+     # --- STATUS DE COLETA (AGORA ESPECÍFICOS) ---
+    "poder_coleta_mineracao": {"nome": "Poder de Coleta (⛏️)", "emoji": "🍀", "category": "COLETA", "is_percent": True},
+    "eficiencia_mineracao": {"nome": "Eficiência (⛏️)", "emoji": "⚡", "category": "COLETA", "is_percent": True},
+    "fortuna_mineracao": {"nome": "Fortuna (⛏️)", "emoji": "💰", "category": "COLETA"},
     "nivel_mineração": {"nome": "Nível de Mineração", "emoji": "⛏️", "category": "COLETA"},
+    # Exemplo para o futuro Lenhador
 
     # --- STATUS DE HABILIDADES E EFEITOS (SEM CATEGORIA VISÍVEL) ---
     "CURA": {"nome": "Cura", "emoji": "💖"},
@@ -42,8 +43,14 @@ def format_stat(stat_id, value):
     if not stat_info:
         return f"{stat_id}: {value}"
     
-    # Mostra o sinal de + apenas para buffs, não para duração.
     valor_prefixo = "+" if "BUFF" in stat_id else ""
-    valor_sufixo = "%" if stat_info.get("is_percent") else ""
     
-    return f"{stat_info['emoji']} **{stat_info['nome']}:** {valor_prefixo}{value}{valor_sufixo}"
+    # --- CORREÇÃO APLICADA AQUI ---
+    if stat_info.get("is_percent"):
+        # Usa .0f para remover as casas decimais e formatar como inteiro
+        valor_str = f"{value * 100:.0f}%" 
+    else:
+        # Garante que números não percentuais também sejam formatados de forma limpa
+        valor_str = f"{value:,}"
+
+    return f"{stat_info['emoji']} **{stat_info['nome']}:** {valor_prefixo}{valor_str}"

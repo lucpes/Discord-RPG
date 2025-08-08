@@ -136,14 +136,14 @@ TEMPLATES_PARA_UPLOAD = {
         "tipo": "FERRAMENTA",
         "raridade": "INCOMUM",
         "slot": "PICARETA",
-        "slots_encantamento": 0,
-        "descricao": "Permite a mineração de veios de ferro e outros minerais.",
+        "descricao": "...",
         "atributos_ferramenta": {
+            # --- NOMES DOS ATRIBUTOS ATUALIZADOS ---
             "nivel_mineração": 2,
-            "poder_coleta": 0.25,
-            "eficiencia": 0.15,
-            "durabilidade_max": 250,
-            "fortuna": 0
+            "poder_coleta_mineracao": 0.15, # Antes: poder_coleta
+            "eficiencia_mineracao": 0.10,    # Antes: eficiencia
+            "durabilidade_max": 50,
+            "fortuna_mineracao": 0         # Antes: fortuna
         }
     },
     "machado_lenhador": {
@@ -155,7 +155,7 @@ TEMPLATES_PARA_UPLOAD = {
         "slots_encantamento": 0,
         "descricao": "Ideal para derrubar árvores e coletar madeira.",
         "atributos_ferramenta": {
-            "nivel_mineração": 2,
+            "nivel_mineração": 2,  # mudar os status de lenhador depois
             "poder_coleta": 0.25,
             "eficiencia": 0.15,
             "durabilidade_max": 250,

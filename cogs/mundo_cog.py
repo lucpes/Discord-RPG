@@ -23,6 +23,7 @@ from game.motor_combate import processar_acao_em_grupo, processar_turno_monstro_
 from game.leveling_system import grant_xp
 from utils.notification_helper import send_dm
 from ui.views import MiningView
+from utils.character_helpers import load_player_sheet
 
 
 def criar_barra_status(atual: int, maximo: int, cor_cheia: str, tamanho: int = 10) -> str:
@@ -1060,6 +1061,13 @@ class MundoCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         user_id_str = str(interaction.user.id)
         cidade_atual_id = str(interaction.guild.id)
+        
+        # Usa a função centralizada para carregar todos os dados do jogador
+        sheet = load_player_sheet(user_id_str)
+        if not sheet:
+            # (Tratamento de erro se o personagem não existir, etc.)
+            await interaction.followup.send("Você precisa ter um personagem para minerar.", ephemeral=True)
+            return
 
         # 1. Verifica se o personagem existe
         char_ref = db.collection('characters').document(user_id_str)
@@ -1068,7 +1076,7 @@ class MundoCog(commands.Cog):
             await interaction.followup.send("Você precisa ter um personagem para minerar.", ephemeral=True)
             return
 
-        char_data = char_doc.to_dict()
+        char_data = sheet['char_data']
 
         # 2. VERIFICA A LOCALIZAÇÃO DO JOGADOR
         if char_data.get('localizacao_id') != cidade_atual_id:
@@ -1116,13 +1124,17 @@ class MundoCog(commands.Cog):
         # Para depuração: veja no seu console o que está sendo carregado
         print(f"DEBUG para {interaction.user.name}: Itens Equipados no /mina: {list(equipped_items.keys())}")
         
-        # Passa o cache de itens para a View
+        # --- CORREÇÃO APLICADA AQUI ---
+        # 1. Calcula os status FINAIS do jogador, que incluem os bónus de profissão
+        stats_finais = calcular_stats_completos(char_data, sheet['equipped_items'])
+
         view = MiningView(
             author=interaction.user, 
             char_data=char_data, 
-            cidade_data=cidade_data, 
-            equipped_items=equipped_items,
-            item_templates_cache=self.item_templates_cache # Passa o cache
+            cidade_data=cidade_doc.to_dict(), 
+            equipped_items=sheet['equipped_items'],
+            item_templates_cache=self.item_templates_cache,
+            stats_finais=stats_finais # 2. Passa os status finais para a View
         )
         embed = view.create_embed()
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)

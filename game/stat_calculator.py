@@ -1,6 +1,7 @@
 # game/stat_calculator.py
 from data.classes_data import CLASSES_DATA
 from data.habilidades_library import HABILIDADES
+from data.profissoes_library import PROFISSOES
 
 def calcular_stats_completos(char_data: dict, equipped_items: list) -> dict:
     """
@@ -42,5 +43,19 @@ def calcular_stats_completos(char_data: dict, equipped_items: list) -> dict:
             if efeitos := skill_info.get('efeitos'):
                 for stat_id, value in efeitos.items():
                     stats_finais[stat_id] = stats_finais.get(stat_id, 0) + value
+    
+    # --- CORREÇÃO ADICIONADA AQUI ---
+    # 4. Adiciona os bónus de TODAS as profissões e NÍVEIS alcançados
+    if profissoes_data := char_data.get('profissoes'):
+        for prof_id, prof_progresso in profissoes_data.items():
+            nivel_atual = prof_progresso.get('nivel', 1)
+            
+            # Itera por todos os níveis que o jogador já alcançou (de 1 até o nível atual - 1)
+            if prof_info := PROFISSOES.get(prof_id):
+                for i in range(nivel_atual - 1):
+                    recompensas = prof_info['niveis'][i].get('recompensas', {})
+                    if passivas := recompensas.get('passivas'):
+                        for stat_id, value in passivas.items():
+                            stats_finais[stat_id] = stats_finais.get(stat_id, 0) + value
     
     return stats_finais

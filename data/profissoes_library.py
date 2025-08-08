@@ -8,17 +8,17 @@ PROFISSOES = {
         "niveis": [
             # Nível 1 para 2
             {"xp_para_upar": 500, "recompensas": {
-                "passivas": {"fortuna": 1},
+                "passivas": {"fortuna_mineracao": 1},
                 "desbloqueios": ["Acesso a Minas de Cobre"]
             }},
             # Nível 2 para 3
             {"xp_para_upar": 1200, "recompensas": {
-                "passivas": {"fortuna": 2, "eficiencia": 0.02}, # +2% de eficiência
+                "passivas": {"fortuna_mineracao": 1, "eficiencia_mineracao": 0.02}, # +2% de eficiência
                 "desbloqueios": ["Receita: Barra de Cobre"]
             }},
             {"xp_para_upar": 1200, "recompensas": {
-                "passivas": {"fortuna": 2, "eficiencia": 0.02}, # +2% de eficiência
-                "desbloqueios": ["Receita: Barra de Cobre"]
+                "passivas": {"fortuna_mineracao": 1, "eficiencia_mineracao": 0.03, "poder_coleta_mineracao": 0.01}, # +2% de eficiência
+                "desbloqueios": []
             }},
         ]
     },
