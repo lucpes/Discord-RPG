@@ -49,6 +49,8 @@ class RPG_Bot(commands.Bot):
         print("  -> Cog 'fornalha_cog' carregado.")
         await self.load_extension('cogs.loja_cog')
         print("  -> Cog 'loja_cog' carregado.")
+        await self.load_extension('cogs.forja_cog')
+        print("  -> Cog 'forja_cog' carregado.")
         
         # Sincroniza a árvore de comandos após carregar tudo
         print("Sincronizando comandos de barra...")

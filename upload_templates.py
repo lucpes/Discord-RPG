@@ -70,6 +70,20 @@ TEMPLATES_PARA_UPLOAD = {
             "MANA_MAXIMA": { "min": 100, "max": 100 }
         }
     },
+    "peitoral_couro_reforcado": {
+        "nome": "Peitoral de Couro Reforçado",
+        "emote": "🎽",
+        "tipo": "ARMADURA",
+        "raridade": "Incomum",
+        "slot": "PEITORAL",
+        "slots_encantamento": 1,
+        "stats_base": {
+            "ARMADURA": { "min": 10, "max": 15 },
+            "ARMADURA_MAGICA": { "min": 10, "max": 15 },
+            "VIDA_MAXIMA": { "min": 15, "max": 25 },
+            "MANA_MAXIMA": { "min": 100, "max": 100 }
+        }
+    },
     
     # --- MATERIAIS DE CRAFTING ---
     "pele_de_lobo": {
