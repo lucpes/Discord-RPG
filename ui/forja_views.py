@@ -9,6 +9,7 @@ from data.game_constants import RARITY_EMOJIS
 from data.forja_library import FORJA_BLUEPRINTS
 from cogs.item_cog import get_and_increment_item_id
 from game.professions_helper import grant_profession_xp
+from game.forja_helpers import calcular_stats_fusao
 
 # --- MODAL DE QUANTIDADE (ATUALIZADO) ---
 class QuantityModal(ui.Modal, title="Especificar Quantidade"):
@@ -340,22 +341,27 @@ class ForjaView(ui.View):
                 batch.delete(db.collection('items').document(item_usado['id']))
                 batch.delete(char_ref.collection('inventario_equipamentos').document(item_usado['id']))
 
-        # 3. CRIA O NOVO ITEM
+        # --- LÓGICA DE CRIAÇÃO DE ITEM ATUALIZADA ---
         resultado_info = blueprint['resultado']
         resultado_template_id = resultado_info['template_id']
         resultado_template_data = self.item_templates_cache[resultado_template_id]
         
-        # Lógica para criar item único com stats combinados
-        stats_finais_combinados = {}
-        # (Implementação da lógica de 'regra_stats' virá num refinamento futuro)
+        # 1. CHAMA O MOTOR DE FUSÃO, PASSANDO O CACHE
+        stats_finais_combinados = calcular_stats_fusao(
+            items_nos_slots, 
+            resultado_info, 
+            self.item_templates_cache # Passa o cache para a função
+        )
         
+        # 2. CRIA O NOVO ITEM COM OS STATS CALCULADOS
         transaction = db.transaction()
         novo_item_id = get_and_increment_item_id(transaction)
         novo_item_ref = db.collection('items').document(str(novo_item_id))
         
         novo_item_data = {
-            "template_id": resultado_template_id, "owner_id": user_id_str,
-            "stats_gerados": resultado_template_data.get('stats_base', {}), # Placeholder
+            "template_id": resultado_template_id,
+            "owner_id": user_id_str,
+            "stats_gerados": stats_finais_combinados, # Usa os stats corretamente calculados
             "encantamentos_aplicados": []
         }
         batch.set(novo_item_ref, novo_item_data)

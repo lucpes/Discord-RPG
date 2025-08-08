@@ -36,7 +36,7 @@ FORJA_BLUEPRINTS = {
         ],
         "resultado": {
             "template_id": "peitoral_couro_reforcado",
-            "regra_stats": "SOMA_BALANCEADA"
+            "regra_stats": "SOMA_DIRETA_MAIS_BASE"
         }
     },
 
