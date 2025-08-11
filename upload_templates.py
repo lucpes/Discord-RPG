@@ -100,6 +100,13 @@ TEMPLATES_PARA_UPLOAD = {
         "raridade": "INCOMUM",
         "descricao": "Uma rocha rica em ferro, pronta para ser refinada em uma forja."
     },
+    "pedra_bruta": {
+        "nome": "Pedra Bruta",
+        "emote": "🪨",
+        "tipo": "MATERIAL",
+        "raridade": "COMUM",
+        "descricao": "Uma rocha."
+    },
     "graveto": {
         "nome": "Graveto",
         "emote": "🪵",

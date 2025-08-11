@@ -6,6 +6,7 @@ from data.fornalha_library import FORNALHA_RECIPES, ORDERED_FORNALHA_RECIPES
 from firebase_config import db
 from firebase_admin import firestore
 from game.professions_helper import grant_profession_xp
+from utils.inventory_helpers import check_inventory_space
 
 class FornalhaView(ui.View):
     def __init__(self, author: discord.User, char_data: dict, cidade_data: dict, stackable_inventory: dict, item_templates_cache: dict):
@@ -206,7 +207,7 @@ class FornalhaView(ui.View):
             embed = self.parent_view.create_embed()
             await interaction.response.edit_message(embed=embed, view=self.parent_view)
             
-    # --- BOTÃO COLETAR COM LÓGICA IMPLEMENTADA ---
+    # --- BOTÃO COLETAR COM LÓGICA ATUALIZADA ---
     class CollectItemsButton(ui.Button):
         def __init__(self, parent_view: 'FornalhaView'):
             super().__init__(label="Coletar Itens", style=discord.ButtonStyle.success, emoji="🎉", custom_id="collect_items")
@@ -234,26 +235,41 @@ class FornalhaView(ui.View):
                 char_ref.update({'fornalha_ativa': firestore.DELETE_FIELD})
                 return await interaction.followup.send("Erro: Receita não encontrada. O refino foi cancelado.", ephemeral=True)
 
-            # 2. CALCULA E CONCEDE AS RECOMPENSAS
-            # Concede XP de Ferreiro
+            # --- MODIFICAÇÃO PRINCIPAL: VERIFICAÇÃO DE ESPAÇO ---
+            item_criado_id = recipe['item_criado_template_id']
+            item_template = parent.item_templates_cache.get(item_criado_id)
+            
+            # Se o template do item não for encontrado, cancela a operação para segurança.
+            if not item_template:
+                return await interaction.followup.send("❌ Erro ao encontrar dados do item a ser coletado. Tente novamente.", ephemeral=True)
+
+            # Chama a função de verificação
+            if not check_inventory_space(char_ref, char_data, item_template, item_criado_id):
+                # Se não houver espaço, avisa o jogador e NÃO prossegue. Os itens ficam seguros na fornalha.
+                return await interaction.followup.send("❌ Seu inventário de itens empilháveis está cheio! Libere espaço para coletar os materiais.", ephemeral=True)
+
+            # 2. CALCULA E CONCEDE AS RECOMPENSAS (agora só executa se houver espaço)
             xp_ganho = recipe.get('xp_concedido', 0)
             if xp_ganho > 0:
                 grant_profession_xp(user_id_str, "ferreiro", xp_ganho)
             
-            # Adiciona o item refinado ao inventário empilhável
-            item_criado_id = recipe['item_criado_template_id']
             quantidade_criada = recipe.get('quantidade_criada', 1)
             item_ref = char_ref.collection('inventario_empilhavel').document(item_criado_id)
-            item_ref.set({'quantidade': firestore.Increment(quantidade_criada)}, merge=True)
             
-            # 3. LIMPA O ESTADO E ATUALIZA A INTERFACE
-            char_ref.update({'fornalha_ativa': firestore.DELETE_FIELD})
+            # Prepara a transação em batch para garantir atomicidade
+            batch = db.batch()
+            batch.set(item_ref, {'quantidade': firestore.Increment(quantidade_criada)}, merge=True)
+            batch.update(char_ref, {'fornalha_ativa': firestore.DELETE_FIELD})
+            batch.commit()
             
+            # 3. ATUALIZA A INTERFACE
             parent.char_data['fornalha_ativa'] = {}
+            # Atualiza o inventário local para a UI
+            parent.stackable_inventory = {item.id: item.to_dict().get('quantidade', 0) for item in char_ref.collection('inventario_empilhavel').stream()}
             parent.update_view()
             embed = parent.create_embed()
             await interaction.edit_original_response(embed=embed, view=parent)
 
             # 4. ENVIA MENSAGEM DE SUCESSO
-            nome_item = parent.item_templates_cache.get(item_criado_id, {}).get('nome', 'Item')
+            nome_item = item_template.get('nome', 'Item')
             await interaction.followup.send(f"✅ Você coletou **{quantidade_criada}x {nome_item}** e ganhou `{xp_ganho}` de XP de Ferreiro!", ephemeral=True)

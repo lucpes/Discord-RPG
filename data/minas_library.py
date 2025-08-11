@@ -9,7 +9,7 @@ MINAS = {
         "nivel_minimo_edificio": 1,
         "nivel_minerador": 1,
         "nivel_picareta": 1,
-        "tempo_s": 600,  # 10 minutos
+        "tempo_s": 30,  # 10 minutos  600
         "xp_concedido": 10,
         "loot_table": [
             {"template_id": "pedra_bruta", "chance_base": 1.0, "quantidade": (5, 10)},

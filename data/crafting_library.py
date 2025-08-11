@@ -14,6 +14,19 @@ CRAFTING_RECIPES = {
         ],
         "chance_falha": 0.0, # 0% de chance de falhar
     },
+    "teste_craft": {
+        "nome": "Barra de Ferro",
+        "nivel_mesa_trabalho": 1,
+        "nivel_artesao": 1,
+        "xp_concedido": 75,
+        "item_criado_template_id": "barra_ferro",
+        "quantidade_criada": 2,
+        "ingredientes": [
+            {"template_id": "minerio_ferro", "quantidade": 5},
+            {"template_id": "graveto", "quantidade": 2}
+        ],
+        "chance_falha": 0.0, # 0% de chance de falhar
+    },
 
     # Exemplo de item avançado com chance de falha e obra-prima
     "espada_runica_craft": {

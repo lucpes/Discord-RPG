@@ -24,6 +24,7 @@ from game.leveling_system import grant_xp
 from utils.notification_helper import send_dm
 from ui.views import MiningView
 from utils.character_helpers import load_player_sheet
+from utils.inventory_helpers import check_inventory_space
 
 
 def criar_barra_status(atual: int, maximo: int, cor_cheia: str, tamanho: int = 10) -> str:

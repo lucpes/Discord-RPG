@@ -8,6 +8,7 @@ from data.crafting_library import CRAFTING_RECIPES, ORDERED_RECIPES
 # Importa o gerador de ID de item que já usamos na batalha
 from cogs.item_cog import get_and_increment_item_id
 from game.professions_helper import grant_profession_xp
+from utils.inventory_helpers import check_inventory_space
 
 class CraftingView(ui.View):
     def __init__(self, author: discord.User, char_data: dict, cidade_data: dict, stackable_inventory: dict, item_templates_cache: dict):
@@ -93,36 +94,48 @@ class CraftingView(ui.View):
         embed = self.create_embed()
         await interaction.response.edit_message(embed=embed, view=self)
 
-    # --- BOTÃO DE CRAFT COM A LÓGICA FINAL ---
     @ui.button(label="Criar Item", style=discord.ButtonStyle.success, emoji="🛠️", custom_id="craft_item")
     async def craft_item(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.defer(ephemeral=True)
 
-        # 1. PEGA O ESTADO ATUAL
+        # 1. PEGA O ESTADO ATUAL (sem alterações aqui)
         user_id_str = str(self.author.id)
         char_ref = db.collection('characters').document(user_id_str)
+        try:
+            char_doc = char_ref.get()
+            if not char_doc.exists:
+                return await interaction.followup.send("❌ Personagem não encontrado.", ephemeral=True)
+            self.char_data = char_doc.to_dict()
+        except Exception as e:
+            print(f"Erro ao buscar dados do personagem: {e}")
+            return await interaction.followup.send("❌ Ocorreu um erro ao buscar seus dados. Tente novamente.", ephemeral=True)
+
         recipe_id = ORDERED_RECIPES[self.current_recipe_index]
         recipe = CRAFTING_RECIPES[recipe_id]
 
-        # 2. VERIFICAÇÃO DE SEGURANÇA NO SERVIDOR
+        # 2. VERIFICAÇÃO DE SEGURANÇA (sem alterações aqui)
         cidade_doc = db.collection('cidades').document(str(interaction.guild.id)).get()
         nivel_mesa_cidade = cidade_doc.to_dict().get('construcoes', {}).get('MESA_TRABALHO', {}).get('nivel', 0)
         inventario_atual = {item.id: item.to_dict().get('quantidade', 0) for item in char_ref.collection('inventario_empilhavel').stream()}
 
-        if nivel_mesa_cidade < recipe['nivel_mesa_trabalho']:
-            return await interaction.followup.send("❌ Seu nível de Mesa de Trabalho é muito baixo!", ephemeral=True)
+        nivel_artesao_jogador = self.char_data.get('profissoes', {}).get('artesao', {}).get('nivel', 1)
+        if nivel_artesao_jogador < recipe.get('nivel_artesao', 1):
+            return await interaction.followup.send("❌ Seu nível de Artesão é muito baixo!", ephemeral=True)
+
+        if nivel_mesa_cidade < recipe.get('nivel_mesa_trabalho', 1):
+            return await interaction.followup.send("❌ O nível da Mesa de Trabalho da cidade é muito baixo!", ephemeral=True)
 
         for ingrediente in recipe['ingredientes']:
             if inventario_atual.get(ingrediente['template_id'], 0) < ingrediente['quantidade']:
                 return await interaction.followup.send("❌ Você não tem mais os materiais necessários!", ephemeral=True)
         
-        # 3. PREPARA O CONSUMO DE MATERIAIS
+        # 3. PREPARA O CONSUMO DE MATERIAIS (sem alterações aqui)
         batch = db.batch()
         for ingrediente in recipe['ingredientes']:
             material_ref = char_ref.collection('inventario_empilhavel').document(ingrediente['template_id'])
             batch.update(material_ref, {'quantidade': firestore.Increment(-ingrediente['quantidade'])})
 
-        # 4. ROLAGEM DE RESULTADO E PREPARAÇÃO DA CRIAÇÃO
+        # 4. ROLAGEM DE RESULTADO E PREPARAÇÃO DA CRIAÇÃO (LÓGICA CORRIGIDA)
         feedback_msg = ""
         feedback_color = discord.Color.green()
         item_criado = False
@@ -133,45 +146,67 @@ class CraftingView(ui.View):
         
         elif random.random() < recipe.get('chance_obra_prima', 0.0):
             item_criado = True
-            if 'quantidade_obra_prima' in recipe:
-                qtd = recipe['quantidade_obra_prima']
+            # MODIFICAÇÃO: A lógica da obra-prima agora também se baseia no tipo de item.
+            # Verifica se a obra-prima é um item único e especial (ex: uma espada lendária)
+            if 'item_obra_prima_template_id' in recipe:
+                item_id = recipe['item_obra_prima_template_id']
+                item_template = self.item_templates_cache[item_id]
+
+                if not check_inventory_space(char_ref, self.char_data, item_template, item_id):
+                    return await interaction.followup.send("❌ Seu inventário de equipamentos está cheio! A criação foi cancelada e os materiais não foram gastos.", ephemeral=True)
+
+                self._create_unique_item(user_id_str, item_id, batch)
+                feedback_msg = f"✨ **Obra-Prima!**\nVocê forjou um item de qualidade excepcional: **{item_template['nome']}**!"
+            else:
+                # Se não for um item especial, a obra-prima é um bônus de quantidade do item padrão (que deve ser empilhável)
                 item_id = recipe['item_criado_template_id']
+                item_template = self.item_templates_cache[item_id]
+
+                if not check_inventory_space(char_ref, self.char_data, item_template, item_id):
+                    return await interaction.followup.send("❌ Seu inventário de itens empilháveis está cheio! A criação foi cancelada e os materiais não foram gastos.", ephemeral=True)
+                
+                qtd = recipe.get('quantidade_obra_prima', recipe.get('quantidade_criada', 1) * 2) # Bônus de quantidade
                 item_ref = char_ref.collection('inventario_empilhavel').document(item_id)
                 batch.set(item_ref, {'quantidade': firestore.Increment(qtd)}, merge=True)
-                nome_item = self.item_templates_cache[item_id]['nome']
-                feedback_msg = f"✨ **Obra-Prima!**\nVocê criou com maestria e produziu **{qtd}x {nome_item}**!"
-            else:
-                item_id = recipe['item_obra_prima_template_id']
-                self._create_unique_item(user_id_str, item_id, batch)
-                nome_item = self.item_templates_cache[item_id]['nome']
-                feedback_msg = f"✨ **Obra-Prima!**\nVocê forjou um item de qualidade excepcional: **{nome_item}**!"
+                feedback_msg = f"✨ **Obra-Prima!**\nVocê criou com maestria e produziu **{qtd}x {item_template['nome']}**!"
         
         else:
+            # Lógica para Sucesso Normal
             item_criado = True
             item_id = recipe['item_criado_template_id']
-            if 'quantidade_criada' in recipe:
-                qtd = recipe['quantidade_criada']
+            item_template = self.item_templates_cache[item_id]
+
+            if not check_inventory_space(char_ref, self.char_data, item_template, item_id):
+                tipo_inventario = "equipamentos" if item_template.get('tipo', 'MATERIAL') in ["ARMA", "ARMADURA", "ESCUDO", "FERRAMENTA"] else "itens empilháveis"
+                return await interaction.followup.send(f"❌ Seu inventário de {tipo_inventario} está cheio! A criação foi cancelada e os materiais não foram gastos.", ephemeral=True)
+            
+            # --- MODIFICAÇÃO PRINCIPAL ---
+            # A decisão de como criar o item agora é baseada no TIPO do item, e não na receita.
+            item_tipo = item_template.get('tipo', 'MATERIAL')
+            if item_tipo in ["MATERIAL", "CONSUMIVEL"]:
+                # Se for Material ou Consumível, cria no inventário empilhável.
+                qtd = recipe.get('quantidade_criada', 1)
                 item_ref = char_ref.collection('inventario_empilhavel').document(item_id)
                 batch.set(item_ref, {'quantidade': firestore.Increment(qtd)}, merge=True)
-                nome_item = self.item_templates_cache[item_id]['nome']
-                feedback_msg = f"✅ **Sucesso!**\nVocê criou **{qtd}x {nome_item}**."
-            else:
+                feedback_msg = f"✅ **Sucesso!**\nVocê criou **{qtd}x {item_template['nome']}**."
+            else: # ARMA, ARMADURA, ESCUDO, FERRAMENTA
+                # Se for qualquer outro tipo, cria como um item único no inventário de equipamentos.
                 self._create_unique_item(user_id_str, item_id, batch)
-                nome_item = self.item_templates_cache[item_id]['nome']
-                feedback_msg = f"✅ **Sucesso!**\nVocê criou **1x {nome_item}**."
+                feedback_msg = f"✅ **Sucesso!**\nVocê criou **1x {item_template['nome']}**."
 
-        # 5. CONCEDE XP DE PROFISSÃO SE O CRAFT FOI BEM-SUCEDIDO
+        # 5. e 6. CONCEDE XP E EXECUTA AS MUDANÇAS (sem alterações aqui)
         if item_criado:
-            # --- CORREÇÃO APLICADA AQUI ---
-            # A profissão da Mesa de Trabalho é Artesão
             xp_ganho = recipe.get('xp_concedido', 50)
             grant_profession_xp(user_id_str, "artesao", xp_ganho)
 
-        # 6. EXECUTA AS MUDANÇAS E ATUALIZA A INTERFACE
         batch.commit()
         await interaction.followup.send(embed=discord.Embed(description=feedback_msg, color=feedback_color), ephemeral=True)
 
         self.stackable_inventory = {item.id: item.to_dict().get('quantidade', 0) for item in char_ref.collection('inventario_empilhavel').stream()}
+        char_doc_final = char_ref.get()
+        if char_doc_final.exists:
+            self.char_data = char_doc_final.to_dict()
+
         embed = self.create_embed()
         await interaction.edit_original_response(embed=embed, view=self)
 
