@@ -37,12 +37,17 @@ class PerfilView(ui.View):
         await interaction.response.defer(ephemeral=True, thinking=True)
         user_id = str(interaction.user.id)
         char_ref = db.collection('characters').document(user_id)
+        char_doc = char_ref.get()
 
-        # Listas para guardar os 3 tipos de itens
+        # MODIFICAÇÃO: Precisamos dos dados do personagem para os limites do inventário
+        if not char_doc.exists:
+            await interaction.followup.send("❌ Personagem não encontrado.", ephemeral=True)
+            return
+        char_data = char_doc.to_dict()
+
         equipped_items = {}
         unequipped_equipment = []
         
-        # Carrega equipamentos da coleção 'inventario_equipamentos'
         equip_snapshot = char_ref.collection('inventario_equipamentos').stream()
         for item_ref in equip_snapshot:
             item_id = item_ref.id
@@ -62,10 +67,8 @@ class PerfilView(ui.View):
                 slot = template_data.get('slot')
                 if slot: equipped_items[slot] = full_item_data
             else:
-                # Se não está equipado, vai para a lista de equipamentos na mochila
                 unequipped_equipment.append(full_item_data)
 
-        # Carrega materiais/consumíveis da coleção 'inventario_empilhavel'
         stackable_items = []
         stackable_snapshot = char_ref.collection('inventario_empilhavel').stream()
         for item_ref in stackable_snapshot:
@@ -82,9 +85,10 @@ class PerfilView(ui.View):
                 "template_data": template_doc.to_dict()
             })
 
-        # Passa as 3 listas para a InventarioView
+        # MODIFICAÇÃO: Passa o 'char_data' para a InventarioView
         view = InventarioView(
-            user=interaction.user, 
+            user=interaction.user,
+            char_data=char_data,  # Passando os dados aqui
             equipped_items=equipped_items, 
             unequipped_equipment=unequipped_equipment,
             stackable_items=stackable_items
@@ -116,16 +120,17 @@ class PerfilView(ui.View):
 # ---------------------------------------------------------------------------------
 # VIEW DE INVENTÁRIO
 # ---------------------------------------------------------------------------------
-# --- VIEW DE INVENTÁRIO TOTALMENTE REFEITA ---
+# --- VIEW DE INVENTÁRIO ATUALIZADA PARA MOSTRAR SLOTS ---
 class InventarioView(ui.View):
-    def __init__(self, user: discord.User, equipped_items: dict, unequipped_equipment: list, stackable_items: list):
+    # MODIFICAÇÃO: O construtor agora aceita 'char_data'
+    def __init__(self, user: discord.User, char_data: dict, equipped_items: dict, unequipped_equipment: list, stackable_items: list):
         super().__init__(timeout=300)
         self.user = user
+        self.char_data = char_data # Armazena os dados do personagem
         self.equipped_items = equipped_items
         self.unequipped_equipment = unequipped_equipment
         self.stackable_items = stackable_items
         
-        # A paginação agora pode ser para ambos os tipos de itens na mochila
         self.backpack_items = self.unequipped_equipment + self.stackable_items
         
         self.items_per_page = 5
@@ -133,7 +138,6 @@ class InventarioView(ui.View):
         self.total_pages = math.ceil(len(self.backpack_items) / self.items_per_page) if self.backpack_items else 1
         self.update_buttons()
         
-    # --- MÉTODO ATUALIZADO PARA O NOVO FORMATO ---
     def format_stackable_item_line(self, item_data):
         template = item_data['template_data']
         item_emote = template.get('emote', '📦')
@@ -152,7 +156,6 @@ class InventarioView(ui.View):
         if prev_button: prev_button.disabled = self.current_page == 1
         if next_button: next_button.disabled = self.current_page >= self.total_pages
 
-    # --- MÉTODO ATUALIZADO PARA O NOVO FORMATO ---
     def format_item_line(self, item_data):
         template = item_data['template_data']
         instance = item_data['instance_data']
@@ -163,7 +166,6 @@ class InventarioView(ui.View):
         main_line = f"{item_emote} `[{item_data['id']}]` **{template['nome']}** {rarity_emoji}"
         
         stats_str = ""
-        # (Lógica para buscar stats de combate ou de ferramenta - sem alterações)
         stats_gerados = instance.get('stats_gerados', {})
         if stats_gerados:
             stats_list = [f"{stat.replace('_', ' ').capitalize()} +{value}" for stat, value in stats_gerados.items()]
@@ -172,14 +174,10 @@ class InventarioView(ui.View):
             atributos_ferramenta = template.get('atributos_ferramenta', {})
             if atributos_ferramenta:
                 stats_list = []
-                
-                # Pega a durabilidade máxima do template
                 dur_max = atributos_ferramenta.get('durabilidade_max', 1)
-                # Pega a durabilidade ATUAL da instância do item
                 dur_atual = instance.get('durabilidade_atual', dur_max)
                 stats_list.append(f"Durabilidade: {dur_atual}/{dur_max}")
 
-                # Adiciona os outros atributos, ignorando a durabilidade_max
                 for attr, value in atributos_ferramenta.items():
                     if attr != 'durabilidade_max':
                         attr_name = attr.replace('_', ' ').capitalize()
@@ -192,28 +190,21 @@ class InventarioView(ui.View):
         else:
             return main_line
         
-    # --- MÉTODO ATUALIZADO PARA O NOVO LAYOUT ---
     async def create_inventory_embed(self):
         embed = discord.Embed(title=f"Inventário de {self.user.display_name}", color=self.user.color)
         
-        # Definição dos slots para cada coluna
         armor_slots = ["CAPACETE", "PEITORAL", "CALCA", "BOTA"]
         accessory_slots = ["MAO_PRINCIPAL", "MAO_SECUNDARIA", "ANEL", "COLAR"]
         utility_slots = ["PICARETA", "MACHADO", "RUNA_1", "RUNA_2"]
 
-        # --- LÓGICA DE EXIBIÇÃO CORRIGIDA ---
-
-        # Coluna 1: Armadura
         armor_str = ""
         for slot_id in armor_slots:
             slot_info = EQUIPMENT_SLOTS.get(slot_id, {})
             item = self.equipped_items.get(slot_id)
-            # AQUI USAMOS O format_item_line SEM A PARTE DOS STATUS
             item_line = f"{self.format_item_line(item).splitlines()[0]}" if item else "— *Vazio*"
             armor_str += f"{slot_info.get('emoji', ' ')} **{slot_info.get('display', slot_id)}:**\n↳ {item_line}\n"
         embed.add_field(name="Equipamentos de Defesa", value=armor_str, inline=True)
 
-        # Coluna 2: Combate
         accessory_str = ""
         for slot_id in accessory_slots:
             slot_info = EQUIPMENT_SLOTS.get(slot_id, {})
@@ -222,7 +213,6 @@ class InventarioView(ui.View):
             accessory_str += f"{slot_info.get('emoji', ' ')} **{slot_info.get('display', slot_id)}:**\n↳ {item_line}\n"
         embed.add_field(name="Equipamentos de Combate", value=accessory_str, inline=True)
         
-        # Coluna 3: Ferramentas e Runas
         utility_str = ""
         for slot_id in ["PICARETA", "MACHADO"]:
             slot_info = EQUIPMENT_SLOTS.get(slot_id)
@@ -241,11 +231,24 @@ class InventarioView(ui.View):
         
         embed.add_field(name="Ferramentas e Runas", value=utility_str, inline=True)
         
-        # A mochila continua em baixo, ocupando a largura total
+        # --- MODIFICAÇÃO PRINCIPAL PARA MOSTRAR SLOTS ---
+        limites = self.char_data.get('limites_inventario', {'equipamentos': 6, 'empilhavel': 12})
+        limite_equip = limites.get('equipamentos', 6)
+        limite_stack = limites.get('empilhavel', 12)
+
+        equip_ocupados = len(self.unequipped_equipment)
+        stack_ocupados = len(self.stackable_items)
+        
+        # O título do campo da mochila agora mostra os slots.
+        backpack_title = (
+            f"🎒 Mochila"
+            f" | 🛡️ Equipamentos: {equip_ocupados}/{limite_equip}"
+            f" | 📦 Materiais: {stack_ocupados}/{limite_stack}"
+        )
+
         if not self.backpack_items:
-            embed.add_field(name="🎒 Mochila", value="Sua mochila está vazia.", inline=False)
+            embed.add_field(name=backpack_title, value="Sua mochila está vazia.", inline=False)
         else:
-            # ... (lógica da mochila e paginação - sem alterações)
             start_index = (self.current_page - 1) * self.items_per_page
             end_index = self.current_page * self.items_per_page
             items_on_page = self.backpack_items[start_index:end_index]
@@ -255,7 +258,8 @@ class InventarioView(ui.View):
                     backpack_list.append(self.format_stackable_item_line(item))
                 else:
                     backpack_list.append(self.format_item_line(item))
-            embed.add_field(name="🎒 Mochila", value="\n".join(backpack_list), inline=False)
+            
+            embed.add_field(name=backpack_title, value="\n".join(backpack_list), inline=False)
             embed.set_footer(text=f"Use /equipar <ID> para equipar um item | Página {self.current_page}/{self.total_pages}")
             
         return embed

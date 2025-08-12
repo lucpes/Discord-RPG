@@ -135,7 +135,20 @@ TEMPLATES_PARA_UPLOAD = {
         "raridade": "COMUM",
         "descricao": "Barra de aço."
     },
-    
+    "essencia_magica": {
+        "nome": "Essência Mágica",
+        "emote": "✨",
+        "tipo": "MATERIAL",
+        "raridade": "COMUM",
+        "descricao": "Essencia Magica."
+    },
+    "essencia_magica_pura": {
+        "nome": "Essência Mágica Pura",
+        "emote": "✨",
+        "tipo": "MATERIAL",
+        "raridade": "COMUM",
+        "descricao": "Essencia Magica Pura."
+    },
     # --- FERRAMENTAS ---
     "picareta_ferro": {
         "nome": "Picareta de Ferro",

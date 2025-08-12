@@ -10,6 +10,7 @@ from data.forja_library import FORJA_BLUEPRINTS
 from cogs.item_cog import get_and_increment_item_id
 from game.professions_helper import grant_profession_xp
 from game.forja_helpers import calcular_stats_fusao
+from utils.inventory_helpers import check_inventory_space
 
 # --- MODAL DE QUANTIDADE (ATUALIZADO) ---
 class QuantityModal(ui.Modal, title="Especificar Quantidade"):
@@ -299,12 +300,11 @@ class ForjaView(ui.View):
         if interaction.user.id != self.author.id: return
         await interaction.response.defer(ephemeral=True)
         
-        # 1. PEGA A PLANTA E VERIFICA REQUISITOS NOVAMENTE
+        # 1. PEGA A PLANTA E VERIFICA REQUISITOS (sem alterações)
         blueprint = self.find_matching_blueprint()
         if not blueprint:
             return await interaction.followup.send("❌ Estes itens não podem ser fundidos.", ephemeral=True)
         
-        # --- VERIFICAÇÃO FINAL DE REQUISITOS ADICIONADA ---
         user_id_str = str(self.author.id)
         char_ref = db.collection('characters').document(user_id_str)
         char_doc = char_ref.get()
@@ -321,63 +321,70 @@ class ForjaView(ui.View):
         
         if nivel_ferreiro_jogador < blueprint.get('nivel_ferreiro', 1):
             return await interaction.followup.send(f"❌ Você não tem o nível de Ferreiro necessário! (Requer: {blueprint.get('nivel_ferreiro', 1)})", ephemeral=True)
-        # --- FIM DA VERIFICAÇÃO ---
+        
+        resultado_info = blueprint['resultado']
+        resultado_template_id = resultado_info['template_id']
+        resultado_template_data = self.item_templates_cache[resultado_template_id]
 
-        user_id_str = str(interaction.user.id)
-        char_ref = db.collection('characters').document(user_id_str)
-        # (Adicione aqui a verificação final de nível de forja e ferreiro, como fizemos no craft)
-        # ...
+        if not check_inventory_space(char_ref, char_data, resultado_template_data, resultado_template_id):
+            tipo_inventario = "equipamentos" if resultado_template_data.get("tipo", "EQUIPAMENTO") != "MATERIAL" else "materiais"
+            return await interaction.followup.send(f"❌ Seu inventário de {tipo_inventario} está cheio!", ephemeral=True)
 
-        # 2. PREPARA O BATCH E CONSOME OS ITENS
+        # 2. PREPARA O BATCH E CONSOME OS ITENS (sem alterações)
         batch = db.batch()
         items_nos_slots = [item for item in self.slots if item]
 
         for item_usado in items_nos_slots:
-            if 'quantidade' in item_usado: # Item empilhável
+            if 'quantidade' in item_usado:
                 item_ref = char_ref.collection('inventario_empilhavel').document(item_usado['template_id'])
                 batch.update(item_ref, {'quantidade': firestore.Increment(-item_usado['quantidade'])})
-            else: # Equipamento
-                # Apaga da coleção de itens e do inventário do jogador
+            else:
                 batch.delete(db.collection('items').document(item_usado['id']))
                 batch.delete(char_ref.collection('inventario_equipamentos').document(item_usado['id']))
 
-        # --- LÓGICA DE CRIAÇÃO DE ITEM ATUALIZADA ---
-        resultado_info = blueprint['resultado']
-        resultado_template_id = resultado_info['template_id']
-        resultado_template_data = self.item_templates_cache[resultado_template_id]
+        # --- MODIFICAÇÃO PRINCIPAL: LÓGICA CONDICIONAL DE CRIAÇÃO ---
+        feedback_msg = ""
+        # Verifica se o resultado deve ser um item empilhável (material)
+        if 'quantidade_criada' in resultado_info:
+            quantidade = resultado_info['quantidade_criada']
+            item_ref = char_ref.collection('inventario_empilhavel').document(resultado_template_id)
+            batch.set(item_ref, {'quantidade': firestore.Increment(quantidade)}, merge=True)
+            feedback_msg = f"🔥 Você refinou e obteve **{quantidade}x {resultado_template_data['nome']}**!"
         
-        # 1. CHAMA O MOTOR DE FUSÃO, PASSANDO O CACHE
-        stats_finais_combinados = calcular_stats_fusao(
-            items_nos_slots, 
-            resultado_info, 
-            self.item_templates_cache # Passa o cache para a função
-        )
-        
-        # 2. CRIA O NOVO ITEM COM OS STATS CALCULADOS
-        transaction = db.transaction()
-        novo_item_id = get_and_increment_item_id(transaction)
-        novo_item_ref = db.collection('items').document(str(novo_item_id))
-        
-        novo_item_data = {
-            "template_id": resultado_template_id,
-            "owner_id": user_id_str,
-            "stats_gerados": stats_finais_combinados, # Usa os stats corretamente calculados
-            "encantamentos_aplicados": []
-        }
-        batch.set(novo_item_ref, novo_item_data)
-        
-        novo_inv_ref = char_ref.collection('inventario_equipamentos').document(str(novo_item_id))
-        batch.set(novo_inv_ref, {'equipado': False})
+        # Senão, cria um equipamento único (lógica antiga)
+        else:
+            stats_finais_combinados = calcular_stats_fusao(
+                items_nos_slots, 
+                resultado_info, 
+                self.item_templates_cache
+            )
+            
+            transaction = db.transaction()
+            novo_item_id = get_and_increment_item_id(transaction)
+            novo_item_ref = db.collection('items').document(str(novo_item_id))
+            
+            novo_item_data = {
+                "template_id": resultado_template_id,
+                "owner_id": user_id_str,
+                "stats_gerados": stats_finais_combinados,
+                "encantamentos_aplicados": []
+            }
+            batch.set(novo_item_ref, novo_item_data)
+            
+            novo_inv_ref = char_ref.collection('inventario_equipamentos').document(str(novo_item_id))
+            batch.set(novo_inv_ref, {'equipado': False})
+            feedback_msg = f"🔥 Você forjou **{resultado_template_data['nome']}** com sucesso!"
 
-        # 4. CONCEDE XP DE PROFISSÃO
+        # 4. CONCEDE XP E EXECUTA AS MUDANÇAS
         if xp_ganho := blueprint.get('xp_concedido'):
             grant_profession_xp(user_id_str, "ferreiro", xp_ganho)
             
-        # 5. EXECUTA E DÁ FEEDBACK
         batch.commit()
-        self.slots = [None, None, None] # Limpa os slots
+        
+        self.inventario_equipamentos = [item for item in self.inventario_equipamentos if item not in items_nos_slots]
+        self.slots = [None, None, None] 
         self.update_view()
         embed = self.create_embed()
         await interaction.edit_original_response(embed=embed, view=self)
 
-        await interaction.followup.send(f"🔥 Você forjou **{resultado_template_data['nome']}** com sucesso!", ephemeral=True)
+        await interaction.followup.send(feedback_msg, ephemeral=True)

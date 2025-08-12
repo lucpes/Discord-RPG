@@ -60,6 +60,43 @@ FORJA_BLUEPRINTS = {
             "regra_stats": "SOMA_PONDERADA"
         }
     },
+    # =============================================================================
+    # Exemplo 4: Refinamento de Material (Cria um item empilhável)
+    # Ideal para transformar materiais básicos em versões mais raras.
+    # =============================================================================
+    "refinar_essencia_magica": {
+        "nome": "Refinar Essências Mágicas",
+        "tipo_planta": "REFINAMENTO", # Um novo tipo para organização
+        "nivel_forja": 3,
+        "nivel_ferreiro": 5,
+        "xp_concedido": 150,
+        "ingredientes": [
+            # Ex: Precisa de 2x do mesmo material
+            {"tipo": "MATERIAL", "template_id": "essencia_magica", "quantidade": 3}
+        ],
+        "resultado": {
+            "template_id": "essencia_magica_pura",
+            # A chave "quantidade_criada" indica que é um item empilhável
+            "quantidade_criada": 1 
+        }
+    },
+
+    "forjar_lamina_mestre": {
+        "nome": "Forjar Lâmina de Mestre",
+        "tipo_planta": "FUSAO",
+        "nivel_forja": 6,
+        "nivel_ferreiro": 30,
+        "xp_concedido": 5000,
+        "ingredientes": [
+            {"tipo": "EQUIPAMENTO", "template_id": "espada_guerreira_raro"},
+            {"tipo": "EQUIPAMENTO", "template_id": "espada_guerreira_raro"},
+            {"tipo": "MATERIAL", "template_id": "essencia_magica_pura"}
+        ],
+        "resultado": {
+            "template_id": "lamina_de_mestre_epica",
+            "regra_stats": "SOMA_PONDERADA"
+        }
+    },
     
     # Adicione aqui outras plantas de reforja (item + material)
 }
