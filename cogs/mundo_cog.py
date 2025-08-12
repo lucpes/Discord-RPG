@@ -1,6 +1,7 @@
 # cogs/mundo_cog.py
 import discord
 import random
+from datetime import datetime, timedelta, timezone
 import asyncio
 from discord import app_commands, ui
 from discord.ext import commands
@@ -756,46 +757,55 @@ class MundoCog(commands.Cog):
         view.message = message
         await view.iniciar_batalha()
         
-    # --- NOVO COMANDO /VIAJAR ---
-    @app_commands.command(name="viajar", description="Viaje para a cidade atual (o servidor onde o comando é usado).")
+    @app_commands.command(name="viajar", description="Viaje para uma cidade ou para sua casa.")
     async def viajar(self, interaction: discord.Interaction):
-        if interaction.guild is None:
-            await interaction.response.send_message("❌ Você não pode viajar para seu espaço pessoal.", ephemeral=True)
-            return
         await interaction.response.defer(ephemeral=True)
-        
         user_id_str = str(interaction.user.id)
-        cidade_alvo_id = str(interaction.guild.id)
-        cidade_alvo_nome = interaction.guild.name
-
+        
         char_ref = db.collection('characters').document(user_id_str)
         char_doc = char_ref.get()
-
         if not char_doc.exists:
-            await interaction.followup.send("Você precisa ter um personagem para viajar. Use `/perfil` para criar um.", ephemeral=True)
-            return
+            return await interaction.followup.send("Você precisa ter um personagem para viajar.", ephemeral=True)
             
         char_data = char_doc.to_dict()
-        localizacao_atual_id = char_data.get('localizacao_id')
-
-        # Verifica se o jogador já está na cidade
-        if localizacao_atual_id == cidade_alvo_id:
-            await interaction.followup.send(f"Você já está em **{cidade_alvo_nome}**!", ephemeral=True)
-            return
-            
-        # Atualiza a localização no Firebase
-        char_ref.update({
-            'localizacao_id': cidade_alvo_id
-        })
-
-        embed = discord.Embed(
-            title="🧭 Viagem Concluída!",
-            description=f"Você chegou à cidade de **{cidade_alvo_nome}**.\nSua localização foi atualizada.",
-            color=discord.Color.blue()
-        )
-        embed.set_footer(text="Explore os arredores com /explorar.")
         
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        # Verifica se o jogador já está viajando
+        if 'viagem_em_andamento' in char_data:
+            termina_em = char_data['viagem_em_andamento']['termina_em']
+            return await interaction.followup.send(f"❌ Você já está viajando! Sua jornada termina <t:{int(termina_em.timestamp())}:R>.", ephemeral=True)
+        
+        # Define o destino
+        destino_id = "CASA"
+        destino_nome = "sua casa"
+        tempo_viagem_s = 60 # 1 minuto para ir/voltar de casa
+        
+        # Se o comando foi usado num servidor, o destino é a cidade
+        if interaction.guild:
+            destino_id = str(interaction.guild.id)
+            destino_nome = f"a cidade de {interaction.guild.name}"
+            tempo_viagem_s = 300 # 5 minutos para viajar entre cidades
+        
+        localizacao_atual_id = char_data.get('localizacao_id')
+        if localizacao_atual_id == destino_id:
+            local_str = f"em **{interaction.guild.name}**" if interaction.guild else "na sua casa"
+            return await interaction.followup.send(f"Você já está {local_str}!", ephemeral=True)
+            
+        # Inicia a viagem
+        termina_em = datetime.now(timezone.utc) + timedelta(seconds=tempo_viagem_s)
+        
+        viagem_data = {
+            "destino_id": destino_id,
+            "destino_nome": destino_nome,
+            "termina_em": termina_em,
+            "notificado": False
+        }
+        
+        char_ref.update({'viagem_em_andamento': viagem_data, 'localizacao_id': "VIAJANDO"})
+        
+        await interaction.followup.send(
+            f"🧭 Você iniciou sua viagem para **{destino_nome}**.\n"
+            f"A jornada levará {int(tempo_viagem_s / 60)} minuto(s). Você chegará <t:{int(termina_em.timestamp())}:R>."
+        )
         
     # --- COMANDO /CIDADE ATUALIZADO ---
     @app_commands.command(name="cidade", description="Mostra as informações da cidade em que você está.")

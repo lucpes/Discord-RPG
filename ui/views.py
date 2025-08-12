@@ -451,6 +451,14 @@ class ClasseSelectionView(ui.View):
             'limites_inventario': {
                 'equipamentos': 6, # Para itens em inventario_equipamentos
                 'empilhavel': 12    # Para materiais e consumíveis em inventario_empilhavel
+            },
+            # --- NOVO CAMPO ADICIONADO AQUI ---
+            'casa': {
+                'nivel': 1,
+                'limites_bau': {
+                    'equipamentos': 2, # 2 slots para equipamentos
+                    'empilhavel': 4    # 4 slots para materiais/consumíveis
+                }
             }
         })
         final_embed = self.create_embed()

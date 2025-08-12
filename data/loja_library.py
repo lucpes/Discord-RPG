@@ -23,8 +23,13 @@ LOJA_INVENTARIO = {
     ],
     "FERRAMENTAS": [
         {
-            "template_id": "picareta_simples",
-            "nivel_loja_req": 2,
+            "template_id": "picareta_improvisada",
+            "nivel_loja_req": 1,
+            "preco_compra": 250, "tipo_moeda": "MOEDAS"
+        },
+        {
+            "template_id": "machado_improvisado",
+            "nivel_loja_req": 1,
             "preco_compra": 250, "tipo_moeda": "MOEDAS"
         },
     ],

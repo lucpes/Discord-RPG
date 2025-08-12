@@ -45,7 +45,7 @@ class BuyModal(ui.Modal, title="Confirmar Compra"):
         # Verifica se o jogador tem dinheiro suficiente
         if char_data.get(tipo_moeda.lower(), 0) < preco_total:
             moeda_str = "Moedas" if tipo_moeda == "MOEDAS" else "Diamantes"
-            return await interaction.followup.send(f"❌ Você не tem {moeda_str} suficientes! Custo total: {preco_total}.", ephemeral=True)
+            return await interaction.followup.send(f"❌ Você não tem {moeda_str} suficientes! Custo total: {preco_total}.", ephemeral=True)
 
         # 3. PROCESSA A COMPRA
         batch = db.batch()

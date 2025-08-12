@@ -13,11 +13,13 @@ class TasksCog(commands.Cog):
         self.check_constructions.start()
         self.check_player_actions.start()
         self.processar_renda_cidades.start()
+        self.check_viagens.start()
 
     def cog_unload(self):
         self.check_constructions.cancel()
         self.check_player_actions.cancel()
         self.processar_renda_cidades.cancel()
+        self.check_viagens.cancel()
 
     @tasks.loop(minutes=1.0)
     async def check_constructions(self):
@@ -109,10 +111,48 @@ class TasksCog(commands.Cog):
                     print(f"  -> +{renda_diaria} moedas adicionadas ao tesouro de '{cidade_data.get('nome', cidade_doc.id)}'.")
             except Exception as e:
                 print(f"❌ Erro ao processar renda da cidade {cidade_doc.id}: {e}")
+    
+    # --- NOVA TAREFA PARA VIAGENS ---
+    @tasks.loop(seconds=30)
+    async def check_viagens(self):
+        """Verifica se alguma viagem de jogador terminou."""
+        now = datetime.now(timezone.utc)
+        query = db.collection('characters').where(
+            'viagem_em_andamento.termina_em', '<=', now
+        )
+        
+        docs_finalizados = query.stream()
+
+        for doc in docs_finalizados:
+            try:
+                viagem_data = doc.to_dict().get('viagem_em_andamento')
+                if not viagem_data: continue
+                
+                destino_id = viagem_data['destino_id']
+                destino_nome = viagem_data['destino_nome']
+                
+                # Finaliza a viagem, atualizando a localização e removendo o status de viagem
+                doc.reference.update({
+                    'localizacao_id': destino_id,
+                    'viagem_em_andamento': firestore.DELETE_FIELD
+                })
+                
+                # Envia a notificação por DM
+                user_id_int = int(doc.id)
+                embed = discord.Embed(
+                    title="📍 Destino Alcançado!",
+                    description=f"Sua viagem terminou! Você chegou em segurança a **{destino_nome}**.",
+                    color=discord.Color.green()
+                )
+                await send_dm(self.bot, user_id_int, embed)
+
+            except Exception as e:
+                print(f"❌ Erro ao processar viagem finalizada para o jogador {doc.id}: {e}")
 
     @check_constructions.before_loop
     @check_player_actions.before_loop
     @processar_renda_cidades.before_loop
+    @check_viagens.before_loop
     async def before_tasks(self):
         await self.bot.wait_until_ready()
 
