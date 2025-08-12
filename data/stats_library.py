@@ -26,7 +26,11 @@ STATS = {
     "eficiencia_mineracao": {"nome": "Eficiência (⛏️)", "emoji": "⚡", "category": "COLETA", "is_percent": True},
     "fortuna_mineracao": {"nome": "Fortuna (⛏️)", "emoji": "💰", "category": "COLETA"},
     "nivel_mineração": {"nome": "Nível de Mineração", "emoji": "⛏️", "category": "COLETA"},
-    # Exemplo para o futuro Lenhador
+    # --- NOVO: Status de Lenhador ---
+    "poder_coleta_lenhador": {"nome": "Poder de Coleta (🪓)", "emoji": "🍀", "category": "COLETA", "is_percent": True},
+    "eficiencia_lenhador": {"nome": "Eficiência (🪓)", "emoji": "⚡", "category": "COLETA", "is_percent": True},
+    "fortuna_lenhador": {"nome": "Fortuna (🪓)", "emoji": "💰", "category": "COLETA"},
+    "nivel_lenhador": {"nome": "Nível de Lenhador", "emoji": "🪓", "category": "COLETA"},
 
     # --- STATUS DE HABILIDADES E EFEITOS (SEM CATEGORIA VISÍVEL) ---
     "CURA": {"nome": "Cura", "emoji": "💖"},

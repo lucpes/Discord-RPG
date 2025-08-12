@@ -26,7 +26,7 @@ class ItemCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
     
-    # --- COMANDO /EQUIPAR ---
+    # --- COMANDO /EQUIPAR ATUALIZADO ---
     @app_commands.command(name="equipar", description="Equipa um item do seu inventário.")
     @app_commands.describe(item_id="O ID do item que você deseja equipar.")
     async def equipar(self, interaction: discord.Interaction, item_id: int):
@@ -48,6 +48,7 @@ class ItemCog(commands.Cog):
         char_doc = char_ref.get()
         char_data = char_doc.to_dict()
 
+        # Verificação de Classe (já existente)
         item_class_req = template_data.get('classe')
         if item_class_req:
             player_class = char_data.get('classe')
@@ -61,11 +62,38 @@ class ItemCog(commands.Cog):
                     f"Sua classe é **{player_class}**."
                 )
                 return
+        
+        # --- NOVA LÓGICA: VERIFICAÇÃO DE NÍVEL REQUERIDO ---
+        requisito = template_data.get('nivel_requerido')
+        if requisito:
+            # Caso 1: Requisito de Profissão (ex: { "profissao": "minerador", "nivel": 5 })
+            if isinstance(requisito, dict):
+                req_profissao = requisito['profissao']
+                req_nivel = requisito['nivel']
+                
+                # Pega o nível da profissão do jogador, com 1 como padrão se não existir.
+                nivel_jogador_profissao = char_data.get('profissoes', {}).get(req_profissao, {}).get('nivel', 1)
+                
+                if nivel_jogador_profissao < req_nivel:
+                    return await interaction.followup.send(
+                        f"❌ Você não pode equipar **{template_data['nome']}**!\n"
+                        f"Requer **{req_profissao.capitalize()} Nível {req_nivel}**, mas o seu é {nivel_jogador_profissao}.",
+                        ephemeral=True
+                    )
+            
+            # Caso 2: Requisito de Nível de Personagem (ex: 10)
+            elif isinstance(requisito, int):
+                nivel_jogador = char_data.get('nivel', 1)
+                if nivel_jogador < requisito:
+                    return await interaction.followup.send(
+                        f"❌ Você não pode equipar **{template_data['nome']}**!\n"
+                        f"Requer **Nível de Personagem {requisito}**, mas o seu é {nivel_jogador}.",
+                        ephemeral=True
+                    )
+        # --- FIM DA NOVA LÓGICA ---
 
         item_slot = template_data.get('slot')
         if item_slot:
-            # --- CORREÇÃO APLICADA AQUI ---
-            # Procura o item antigo na coleção correta: 'inventario_equipamentos'
             inventory_snapshot = char_ref.collection('inventario_equipamentos').where('equipado', '==', True).stream()
             
             for old_item_doc_ref in inventory_snapshot:
@@ -76,13 +104,11 @@ class ItemCog(commands.Cog):
                 if not old_template_doc.exists: continue
                 
                 if old_template_doc.to_dict().get('slot') == item_slot:
-                    # Desequipa o item antigo
                     old_item_doc_ref.reference.update({'equipado': False})
+                    # Use um followup separado para a mensagem de desequipar
                     await interaction.followup.send(f"ℹ️ Item '{old_template_doc.to_dict()['nome']}' foi desequipado automaticamente.", ephemeral=True)
-                    break # Para o loop assim que encontrar e desequipar o item
+                    break 
 
-        # --- CORREÇÃO APLICADA AQUI ---
-        # Atualiza o novo item na coleção correta: 'inventario_equipamentos'
         inventory_ref = char_ref.collection('inventario_equipamentos').document(str(item_id))
         inventory_ref.update({'equipado': True})
 

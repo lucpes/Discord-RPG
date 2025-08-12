@@ -44,38 +44,43 @@ class TasksCog(commands.Cog):
             except Exception as e:
                 print(f"❌ Erro ao processar construção finalizada para a cidade {doc.id}: {e}")
 
+    # --- MÉTODO ATUALIZADO PARA NOTIFICAR AMBAS AS PROFISSÕES ---
     @tasks.loop(minutes=1.0)
     async def check_player_actions(self):
-        """Verifica se ações de jogadores (como mineração) terminaram e os notifica."""
+        """Verifica se ações de jogadores (mineração, lenha, etc.) terminaram e os notifica."""
         now = datetime.now(timezone.utc)
 
-        # --- CORREÇÃO APLICADA AQUI ---
-        # Renomeado para 'mineracao_ativa' sem caracteres especiais
-        query = db.collection('characters').where(
-            'mineracao_ativa.termina_em', '<=', now
-        ).where(
-            'mineracao_ativa.notificado', '==', False
-        )
-        
-        docs_finalizados = query.stream()
+        # Dicionário para mapear o campo do DB para o nome da profissão e emoji
+        acoes_para_verificar = {
+            "mineracao_ativa": {"nome": "Mineração", "emoji": "⛏️", "comando": "/mina"},
+            "lenhador_ativo": {"nome": "Coleta de Lenha", "emoji": "🪓", "comando": "/floresta"}
+        }
 
-        for doc in docs_finalizados:
-            try:
-                user_id_str = doc.id
-                user_id_int = int(user_id_str)
-                
-                embed = discord.Embed(
-                    title="⛏️ Mineração Concluída!",
-                    description="Sua extração de recursos foi finalizada!\nUse o comando `/mina` para coletar suas recompensas.",
-                    color=discord.Color.green()
-                )
-                await send_dm(self.bot, user_id_int, embed)
-                
-                # Atualiza o campo com o nome correto
-                doc.reference.update({'mineracao_ativa.notificado': True})
+        for campo_db, info in acoes_para_verificar.items():
+            query = db.collection('characters').where(
+                f'{campo_db}.termina_em', '<=', now
+            ).where(
+                f'{campo_db}.notificado', '==', False
+            )
+            
+            docs_finalizados = query.stream()
 
-            except Exception as e:
-                print(f"❌ Erro ao processar notificação de mineração para o jogador {doc.id}: {e}")
+            for doc in docs_finalizados:
+                try:
+                    user_id_int = int(doc.id)
+                    
+                    embed = discord.Embed(
+                        title=f"{info['emoji']} {info['nome']} Concluída!",
+                        description=f"Sua extração de recursos foi finalizada!\nUse o comando `{info['comando']}` para coletar suas recompensas.",
+                        color=discord.Color.green()
+                    )
+                    await send_dm(self.bot, user_id_int, embed)
+                    
+                    # Atualiza o campo de notificação correto
+                    doc.reference.update({f'{campo_db}.notificado': True})
+
+                except Exception as e:
+                    print(f"❌ Erro ao processar notificação de {info['nome']} para o jogador {doc.id}: {e}")
 
     # --- TAREFA DE RENDA ATUALIZADA ---
     @tasks.loop(hours=24) # Alterado de 1 para 24 horas

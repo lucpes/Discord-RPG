@@ -23,6 +23,7 @@ from data.minas_library import MINAS
 from game.motor_status import calcular_tempo_final, calcular_chance_final, calcular_quantidade_final
 from game.professions_helper import grant_profession_xp
 from utils.inventory_helpers import check_inventory_space
+from data.floresta_library import FLORESTA_LOCATIONS
 
 # ---------------------------------------------------------------------------------
 # VIEW DO PERFIL
@@ -911,294 +912,233 @@ class PortalAbertoView(ui.View):
             
             await interaction.followup.send(f"Você criou um lobby para a Fenda de Tier {tier}!", ephemeral=True)
             
-# --- VIEW DE MINERAÇÃO COM INTERFACE APRIMORADA E CORRIGIDA ---
-class MiningView(ui.View):
-    def __init__(self, author: discord.User, char_data: dict, cidade_data: dict, equipped_items: list, item_templates_cache: dict, stats_finais: dict):
+# --- NOVA E COMPLETA VIEW DE COLETA GENÉRICA (SUBSTITUI `MiningView`) ---
+class ColetaView(ui.View):
+    def __init__(self, author: discord.User, char_data: dict, cidade_data: dict, equipped_items: list, item_templates_cache: dict, stats_finais: dict, tipo_coleta: str):
         super().__init__(timeout=300)
         self.author = author
         self.char_data = char_data
         self.cidade_data = cidade_data
-        self.equipped_items_dict = {
-            item['template_data'].get('slot'): item 
-            for item in equipped_items
-        }
+        self.equipped_items_dict = {item['template_data'].get('slot'): item for item in equipped_items}
         self.item_templates_cache = item_templates_cache
         self.stats_finais = stats_finais
+        self.tipo_coleta = tipo_coleta
+
+        # O "cérebro" da View: define todas as chaves e nomes com base no tipo de coleta
+        if tipo_coleta == 'mineração':
+            self.config = {
+                "titulo": "⛏️ Central de Mineração", "edificio_id": "MINA", "profissao_id": "minerador",
+                "ferramenta_slot": "PICARETA", "biblioteca": MINAS, "nivel_ferramenta_req": "nivel_picareta",
+                "status_ativo_db": "mineracao_ativa"
+            }
+        elif tipo_coleta == 'lenhador':
+            self.config = {
+                "titulo": "🪓 Acampamento Lenhador", "edificio_id": "FLORESTA", "profissao_id": "lenhador",
+                "ferramenta_slot": "MACHADO", "biblioteca": FLORESTA_LOCATIONS, "nivel_ferramenta_req": "nivel_machado",
+                "status_ativo_db": "lenhador_ativo" # Ex: 'lenhador_ativo'
+            }
         
         self.update_view()
 
     def update_view(self):
-        """Atualiza a view com base no estado de mineração do jogador."""
         self.clear_items()
-        mining_status = self.char_data.get('mineracao_ativa', {})
+        status_ativo = self.char_data.get(self.config['status_ativo_db'], {})
 
-        if not mining_status:
-            self.add_item(self.create_mine_select())
+        if not status_ativo:
+            self.add_item(self.create_location_select())
         else:
-            termina_em = mining_status.get('termina_em')
-            
-            # --- MODIFICAÇÃO: Tratamento robusto de Timestamps ---
-            # Garante que o timestamp do Firebase seja convertido para um objeto de data do Python antes de comparar.
+            termina_em = status_ativo.get('termina_em')
             if termina_em and not isinstance(termina_em, datetime):
                 termina_em = termina_em.to_datetime().replace(tzinfo=timezone.utc)
-
             if termina_em and datetime.now(timezone.utc) >= termina_em:
                 collect_button = ui.Button(label="Coletar Recompensas", style=discord.ButtonStyle.success, emoji="🎉")
                 collect_button.callback = self.collect_rewards
                 self.add_item(collect_button)
 
-    def create_mine_select(self) -> ui.Select:
-        """Cria o menu de seleção com as minas, já mostrando o tempo final com bônus."""
-        nivel_mina_cidade = self.cidade_data.get('construcoes', {}).get('MINA', {}).get('nivel', 0)
-        profissoes_data = self.char_data.get('profissoes', {})
-        nivel_minerador_jogador = profissoes_data.get('minerador', {}).get('nivel', 1)
-        eficiencia = self.stats_finais.get('eficiencia_mineracao', 0)
+    def create_location_select(self) -> ui.Select:
+        cfg = self.config
+        nivel_edificio = self.cidade_data.get('construcoes', {}).get(cfg['edificio_id'], {}).get('nivel', 0)
+        nivel_profissao_jogador = self.char_data.get('profissoes', {}).get(cfg['profissao_id'], {}).get('nivel', 1)
+        eficiencia = self.stats_finais.get(f"eficiencia_{cfg['profissao_id']}", 0)
         
         options = []
-        for mine_id, mine_info in MINAS.items():
-            if mine_info['nivel_minimo_edificio'] <= nivel_mina_cidade:
-                nivel_requerido = mine_info.get('nivel_minerador', 1)
-                pode_minerar = nivel_minerador_jogador >= nivel_requerido
+        for loc_id, loc_info in cfg['biblioteca'].items():
+            if loc_info['nivel_minimo_edificio'] <= nivel_edificio:
+                nivel_req_prof = loc_info.get(f"nivel_{cfg['profissao_id']}", 1)
+                pode_coletar = nivel_profissao_jogador >= nivel_req_prof
                 
-                tempo_base_s = mine_info['tempo_s']
-                tempo_final_s = calcular_tempo_final(tempo_base_s, eficiencia)
+                tempo_final_s = calcular_tempo_final(loc_info['tempo_s'], eficiencia)
                 
-                label = f"{mine_info['nome']}"
+                label = f"{loc_info['nome']}"
                 description = f"Tempo: {timedelta(seconds=tempo_final_s)}"
-                if not pode_minerar:
-                    label = f"🔒 {mine_info['nome']}"
-                    description = f"Requer Nível de Minerador {nivel_requerido}"
+                if not pode_coletar:
+                    label = f"🔒 {loc_info['nome']}"
+                    description = f"Requer Nível de {cfg['profissao_id'].capitalize()} {nivel_req_prof}"
 
-                options.append(discord.SelectOption(
-                    label=label,
-                    value=mine_id,
-                    description=description
-                ))
+                options.append(discord.SelectOption(label=label, value=loc_id, description=description))
 
-        if not options:
-            return ui.Select(placeholder="Nenhuma mina disponível para o nível da cidade.", disabled=True)
-        
-        select = ui.Select(placeholder="Selecione uma mina para começar...", options=options)
-        select.callback = self.start_mining
+        select = ui.Select(placeholder=f"Selecione um local para coletar...", options=options)
+        select.callback = self.start_coleta
         return select
 
-    async def start_mining(self, interaction: discord.Interaction):
-        """Adiciona uma verificação de segurança final para o nível de profissão."""
+    async def start_coleta(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        mine_id = interaction.data['values'][0]
-        mine_info = MINAS[mine_id]
+        cfg = self.config
+        loc_id = interaction.data['values'][0]
+        loc_info = cfg['biblioteca'][loc_id]
 
-        profissoes_data = self.char_data.get('profissoes', {})
-        nivel_minerador_jogador = profissoes_data.get('minerador', {}).get('nivel', 1)
-        nivel_requerido = mine_info.get('nivel_minerador', 1)
+        nivel_profissao_jogador = self.char_data.get('profissoes', {}).get(cfg['profissao_id'], {}).get('nivel', 1)
+        if nivel_profissao_jogador < loc_info.get(f"nivel_{cfg['profissao_id']}", 1):
+            return await interaction.followup.send("❌ Você não tem o nível de profissão necessário!", ephemeral=True)
 
-        if nivel_minerador_jogador < nivel_requerido:
-            await interaction.followup.send(f"❌ Você não tem o nível de Minerador necessário para esta mina! (Requer: {nivel_requerido})", ephemeral=True)
-            return
-
-        picareta_equipada = self.equipped_items_dict.get("PICARETA")
-        if not picareta_equipada:
-            await interaction.followup.send("❌ Você precisa ter uma picareta equipada para minerar!", ephemeral=True)
-            return
-
-        instance_data = picareta_equipada.get('instance_data', {})
-        durabilidade_atual = instance_data.get('durabilidade_atual', 0)
+        ferramenta_equipada = self.equipped_items_dict.get(cfg['ferramenta_slot'])
+        if not ferramenta_equipada:
+            return await interaction.followup.send(f"❌ Você precisa ter um(a) {cfg['ferramenta_slot'].lower()} equipado(a)!", ephemeral=True)
         
-        if durabilidade_atual <= 0:
-            await interaction.followup.send("❌ Sua picareta está quebrada e precisa de reparos!", ephemeral=True)
-            return
+        if ferramenta_equipada.get('instance_data', {}).get('durabilidade_atual', 0) <= 0:
+             return await interaction.followup.send("❌ Sua ferramenta está quebrada!", ephemeral=True)
 
-        atributos_picareta = picareta_equipada['template_data'].get('atributos_ferramenta', {})
-        nivel_requerido_picareta = mine_info.get('nivel_picareta', 1)
-        nivel_picareta_jogador = atributos_picareta.get('nivel_mineração', 0)
-
-        if nivel_picareta_jogador < nivel_requerido_picareta:
-            await interaction.followup.send(f"❌ Sua picareta não tem o nível necessário! Esta mina requer nível `{nivel_requerido_picareta}`, mas sua ferramenta é nível `{nivel_picareta_jogador}`.", ephemeral=True)
-            return
+        nivel_ferramenta_jogador = ferramenta_equipada['template_data'].get('atributos_ferramenta', {}).get(f"nivel_{cfg['profissao_id']}", 0)
+        if nivel_ferramenta_jogador < loc_info.get(cfg['nivel_ferramenta_req'], 1):
+            return await interaction.followup.send("❌ Sua ferramenta não tem o nível necessário para este local!", ephemeral=True)
             
-        eficiencia = self.stats_finais.get('eficiencia_mineracao', 0)
-        tempo_base_s = mine_info['tempo_s']
-        tempo_final_s = calcular_tempo_final(tempo_base_s, eficiencia)
-        termina_em = datetime.now(timezone.utc) + timedelta(seconds=tempo_final_s)
+        eficiencia = self.stats_finais.get(f"eficiencia_{cfg['profissao_id']}", 0)
+        termina_em = datetime.now(timezone.utc) + timedelta(seconds=calcular_tempo_final(loc_info['tempo_s'], eficiencia))
 
-        # --- MODIFICAÇÃO PRINCIPAL AQUI ---
-        # 1. Prepara um dicionário com todos os dados da mineração.
-        mining_data = {
-            'mina_id': mine_id,
-            'inicia_em': firestore.SERVER_TIMESTAMP,
-            'termina_em': termina_em,
-            'notificado': False
-        }
+        coleta_data = {'loc_id': loc_id, 'inicia_em': firestore.SERVER_TIMESTAMP, 'termina_em': termina_em, 'notificado': False}
         
-        # 2. Envia os dados completos para o Firebase.
         char_ref = db.collection('characters').document(str(self.author.id))
-        char_ref.update({'mineracao_ativa': mining_data})
+        char_ref.update({cfg['status_ativo_db']: coleta_data})
         
-        # 3. Atualiza o estado LOCAL com os mesmos dados completos.
-        self.char_data['mineracao_ativa'] = mining_data
-        
-        # 4. Atualiza a interface do usuário.
+        self.char_data[cfg['status_ativo_db']] = coleta_data
         self.update_view()
         embed = self.create_embed()
         await interaction.edit_original_response(embed=embed, view=self)
 
+    # --- MÉTODO 'collect_rewards' COMPLETO E GENÉRICO ---
     async def collect_rewards(self, interaction: discord.Interaction):
-        """Coleta as recompensas da mineração, calcula o loot e a durabilidade."""
         await interaction.response.defer(ephemeral=True)
+        cfg = self.config
         user_id_str = str(self.author.id)
         char_ref = db.collection('characters').document(user_id_str)
         
-        try:
-            char_doc = char_ref.get()
-            if not char_doc.exists:
-                await interaction.followup.send("❌ Seu personagem não foi encontrado no banco de dados.", ephemeral=True)
-                return
-            char_data_atual = char_doc.to_dict()
-
-            mining_status = char_data_atual.get('mineracao_ativa')
+        char_data_atual = char_ref.get().to_dict()
+        status_ativo = char_data_atual.get(cfg['status_ativo_db'])
+        if not status_ativo:
+            return await interaction.followup.send("Você não tem nada para coletar.", ephemeral=True)
             
-            if not mining_status:
-                self.char_data['mineracao_ativa'] = {}
-                self.update_view()
-                await interaction.edit_original_response(embed=self.create_embed(), view=self)
-                await interaction.followup.send("Você não tem nada para coletar.", ephemeral=True)
-                return
-                
-            # --- CORREÇÃO FINAL APLICADA AQUI ---
-            # Corrigido de 'mine_id' para 'mina_id' para corresponder ao que é salvo no DB.
-            mina_id = mining_status.get('mina_id')
-            
-            if not mina_id:
-                char_ref.update({'mineracao_ativa': firestore.DELETE_FIELD})
-                chaves_encontradas = list(mining_status.keys())
-                error_detail = (f"O campo 'mineracao_ativa' foi encontrado, mas a chave 'mina_id' não pôde ser lida corretamente.\n"
-                              f"**Chaves encontradas:** `{chaves_encontradas}`")
-                await interaction.followup.send(
-                    f"❌ **Erro nos dados da sua mineração.** O estado foi resetado.\n\n"
-                    f"**Detalhe Técnico:**\n{error_detail}", 
-                    ephemeral=True
-                )
-                return
+        loc_id = status_ativo.get('loc_id')
+        loc_info = cfg['biblioteca'].get(loc_id)
+        if not loc_info:
+            char_ref.update({cfg['status_ativo_db']: firestore.DELETE_FIELD})
+            return await interaction.followup.send("❌ Erro: Local de coleta não encontrado. O estado foi resetado.", ephemeral=True)
 
-            mine_info = MINAS.get(mina_id)
-            if not mine_info:
-                char_ref.update({'mineracao_ativa': firestore.DELETE_FIELD})
-                await interaction.followup.send(f"❌ Erro: A mina com ID `{mina_id}` não foi encontrada. O estado foi resetado.", ephemeral=True)
-                return
-
-            # O resto da função continua como estava, pois a lógica já está correta.
-            limites = char_data_atual.get('limites_inventario', {'empilhavel': 12})
-            limite_empilhavel = limites.get('empilhavel', 12)
-            
-            slots_ocupados = len(list(char_ref.collection('inventario_empilhavel').stream()))
-            loot_table = mine_info['loot_table']
-            
-            slots_necessarios = 0
-            inv_empilhavel_docs = {doc.id for doc in char_ref.collection('inventario_empilhavel').stream()}
-            for item in loot_table:
-                if item['template_id'] not in inv_empilhavel_docs:
-                    slots_necessarios += 1
-            
-            if (slots_ocupados + slots_necessarios) > limite_empilhavel:
-                await interaction.followup.send(
-                    "❌ **Mochila de Materiais Cheia!**\n"
-                    "Você não tem espaço para coletar todos os novos tipos de materiais.",
-                    ephemeral=True
-                )
-                return
-
-            xp_ganho = mine_info.get('xp_concedido', 25)
-            grant_profession_xp(user_id_str, "minerador", xp_ganho)
-            
-            picareta_equipada = self.equipped_items_dict.get("PICARETA")
-            poder_coleta = self.stats_finais.get('poder_coleta_mineracao', 0)
-            fortuna = self.stats_finais.get('fortuna_mineracao', 0)
-
-            recompensas_coletadas = {}
-            for item_info in loot_table:
-                chance_final = calcular_chance_final(item_info['chance_base'], poder_coleta)
-                if random.random() < chance_final:
-                    quantidade_final = calcular_quantidade_final(item_info['quantidade'], fortuna)
-                    if quantidade_final > 0:
-                        template_id = item_info['template_id']
-                        recompensas_coletadas[template_id] = recompensas_coletadas.get(template_id, 0) + quantidade_final
-
-            batch = db.batch()
-            if recompensas_coletadas:
-                for template_id, quantidade in recompensas_coletadas.items():
-                    item_ref = char_ref.collection('inventario_empilhavel').document(template_id)
-                    batch.set(item_ref, {'quantidade': firestore.Increment(quantidade)}, merge=True)
-
-            if picareta_equipada:
-                item_id = picareta_equipada['id']
-                item_ref = db.collection('items').document(item_id)
-                batch.update(item_ref, {'durabilidade_atual': firestore.Increment(-1)})
-
-            batch.update(char_ref, {'mineracao_ativa': firestore.DELETE_FIELD})
-            batch.commit()
-            
-            self.char_data['mineracao_ativa'] = {}
-            self.update_view()
-            embed = self.create_embed()
-            
-            recompensas_str = "\n".join([f" > `{qtd}x` {self.item_templates_cache.get(tid, {}).get('nome', tid)}" for tid, qtd in recompensas_coletadas.items()]) or "Você não encontrou nada de especial desta vez."
-            
-            await interaction.followup.send(embed=discord.Embed(title="✨ Recompensas Coletadas!", description=recompensas_str, color=discord.Color.green()), ephemeral=True)
-            await interaction.edit_original_response(embed=embed, view=self)
-            
-        except Exception as e:
-            print(f"ERRO INESPERADO AO COLETAR MINA: {e}")
-            await interaction.followup.send("🐛 Ocorreu um erro inesperado ao tentar coletar suas recompensas. Por favor, tente novamente.", ephemeral=True)
-
-    def create_embed(self) -> discord.Embed:
-        # (Este método não precisou de alterações)
-        mining_status = self.char_data.get('mineracao_ativa', {})
-        embed = discord.Embed()
-
-        if not mining_status:
-            embed.title="⛏️ Central de Mineração"
-            embed.description="Selecione uma mina disponível para começar a extrair recursos."
-            embed.color=discord.Color.dark_gray()
-            embed.set_footer(text="O nível da Mina da sua cidade libera novos locais.")
-        else:
-            termina_em = mining_status.get('termina_em')
-            if isinstance(termina_em, datetime) and datetime.now(timezone.utc) >= termina_em:
-                embed.title="🎉 Mineração Concluída! 🎉"
-                embed.description="Seus recursos estão prontos para serem coletados! Clique no botão abaixo."
-                embed.color=discord.Color.gold()
-            else:
-                embed.title="⛏️ Minerando..."
-                embed.description=f"Você está trabalhando duro...\n\n**Conclusão em:** <t:{int(termina_em.timestamp())}:R>"
-                embed.color=discord.Color.orange()
+        # Lógica de verificação de inventário
+        limites = char_data_atual.get('limites_inventario', {'empilhavel': 12})
+        limite_empilhavel = limites.get('empilhavel', 12)
+        slots_ocupados = len(list(char_ref.collection('inventario_empilhavel').stream()))
         
-        picareta_equipada = self.equipped_items_dict.get("PICARETA")
-        if picareta_equipada:
-            template_data = picareta_equipada['template_data']
-            instance_data = picareta_equipada['instance_data']
+        slots_necessarios = 0
+        inv_empilhavel_docs = {doc.id for doc in char_ref.collection('inventario_empilhavel').stream()}
+        for item in loc_info['loot_table']:
+            if item['template_id'] not in inv_empilhavel_docs:
+                slots_necessarios += 1
+        
+        if (slots_ocupados + slots_necessarios) > limite_empilhavel:
+            return await interaction.followup.send("❌ **Mochila de Materiais Cheia!** Libere espaço para coletar.", ephemeral=True)
+
+        # Concede XP usando o ID da profissão do config
+        xp_ganho = loc_info.get('xp_concedido', 0)
+        grant_profession_xp(user_id_str, cfg['profissao_id'], xp_ganho)
+        
+        # Pega os status de coleta do jogador usando as chaves do config
+        poder_coleta = self.stats_finais.get(f"poder_coleta_{cfg['profissao_id']}", 0)
+        fortuna = self.stats_finais.get(f"fortuna_{cfg['profissao_id']}", 0)
+
+        # Calcula o loot
+        recompensas_coletadas = {}
+        for item_info in loc_info['loot_table']:
+            chance_final = calcular_chance_final(item_info['chance_base'], poder_coleta)
+            if random.random() < chance_final:
+                quantidade_final = calcular_quantidade_final(item_info['quantidade'], fortuna)
+                if quantidade_final > 0:
+                    recompensas_coletadas[item_info['template_id']] = recompensas_coletadas.get(item_info['template_id'], 0) + quantidade_final
+
+        batch = db.batch()
+        # Adiciona o loot ao inventário
+        if recompensas_coletadas:
+            for template_id, quantidade in recompensas_coletadas.items():
+                item_ref = char_ref.collection('inventario_empilhavel').document(template_id)
+                batch.set(item_ref, {'quantidade': firestore.Increment(quantidade)}, merge=True)
+
+        # Consome durabilidade da ferramenta
+        ferramenta_equipada = self.equipped_items_dict.get(cfg['ferramenta_slot'])
+        if ferramenta_equipada:
+            item_ref = db.collection('items').document(ferramenta_equipada['id'])
+            batch.update(item_ref, {'durabilidade_atual': firestore.Increment(-1)})
+
+        # Limpa o status de coleta do jogador usando a chave do config
+        batch.update(char_ref, {cfg['status_ativo_db']: firestore.DELETE_FIELD})
+        batch.commit()
+        
+        # Atualiza a interface e envia o feedback
+        self.char_data[cfg['status_ativo_db']] = {}
+        self.update_view()
+        
+        recompensas_str = "\n".join([f" > `{qtd}x` {self.item_templates_cache.get(tid, {}).get('nome', tid)}" for tid, qtd in recompensas_coletadas.items()])
+        embed_feedback = discord.Embed(
+            title="✨ Recompensas Coletadas!",
+            description=recompensas_str or "Você não encontrou nada de especial desta vez.",
+            color=discord.Color.green()
+        ).set_footer(text=f"Você ganhou {xp_ganho} de XP de {cfg['profissao_id'].capitalize()}!")
+
+        await interaction.followup.send(embed=embed_feedback, ephemeral=True)
+        await interaction.edit_original_response(embed=self.create_embed(), view=self)
+
+    # --- MÉTODO 'create_embed' COMPLETO E GENÉRICO ---
+    def create_embed(self) -> discord.Embed:
+        cfg = self.config
+        status_ativo = self.char_data.get(cfg['status_ativo_db'], {})
+        embed = discord.Embed(title=cfg['titulo'])
+
+        if not status_ativo:
+            embed.description = "Selecione um local disponível para começar a extrair recursos."
+            embed.color = discord.Color.dark_gray()
+        else:
+            termina_em = status_ativo.get('termina_em')
+            if termina_em and not isinstance(termina_em, datetime):
+                termina_em = termina_em.to_datetime().replace(tzinfo=timezone.utc)
+            
+            if termina_em and datetime.now(timezone.utc) >= termina_em:
+                embed.title = "🎉 Coleta Concluída! 🎉"
+                embed.description = "Seus recursos estão prontos para serem coletados!"
+                embed.color = discord.Color.gold()
+            else:
+                embed.title = f"{cfg['titulo']}..."
+                embed.description = f"Você está trabalhando...\n\n**Conclusão em:** <t:{int(termina_em.timestamp())}:R>"
+                embed.color = discord.Color.orange()
+        
+        ferramenta_equipada = self.equipped_items_dict.get(cfg['ferramenta_slot'])
+        if ferramenta_equipada:
+            template_data = ferramenta_equipada['template_data']
+            instance_data = ferramenta_equipada['instance_data']
             atributos = template_data.get('atributos_ferramenta', {})
             
             dur_max = atributos.get('durabilidade_max', 1)
             dur_atual = instance_data.get('durabilidade_atual', dur_max)
             
             stats_list = [f"Durabilidade: {dur_atual}/{dur_max}"]
-            for attr, value in atributos.items():
-                if attr != 'durabilidade_max':
-                    attr_name = attr.replace('_', ' ').capitalize()
-                    if attr in ['eficiencia_mineracao', 'poder_coleta_mineracao']:
-                         stats_list.append(f"{attr_name}: {value:.0%}")
-                    else:
-                        stats_list.append(f"{attr_name}: {value}")
+            # Exibe os status relevantes para a profissão
+            for attr in atributos:
+                if cfg['profissao_id'] in attr:
+                    stats_list.append(format_stat(attr, atributos[attr]))
 
             embed.add_field(
                 name="Ferramenta Equipada",
-                value=f"{template_data.get('emote', '⛏️')} **{template_data.get('nome')}**\n`{' | '.join(stats_list)}`",
+                value=f"{template_data.get('emote', '❓')} **{template_data.get('nome')}**\n`{' | '.join(stats_list)}`",
                 inline=False
             )
         else:
-            embed.add_field(
-                name="Ferramenta Equipada",
-                value="Você não tem uma picareta equipada!",
-                inline=False
-            )
+            embed.add_field(name="Ferramenta Equipada", value=f"Você não tem um(a) {cfg['ferramenta_slot'].lower()} equipado(a)!", inline=False)
             
         return embed

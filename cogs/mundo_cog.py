@@ -22,7 +22,7 @@ from cogs.item_cog import get_and_increment_item_id
 from game.motor_combate import processar_acao_em_grupo, processar_turno_monstro_em_grupo
 from game.leveling_system import grant_xp
 from utils.notification_helper import send_dm
-from ui.views import MiningView
+from ui.views import ColetaView
 from utils.character_helpers import load_player_sheet
 from utils.inventory_helpers import check_inventory_space
 
@@ -1056,86 +1056,49 @@ class MundoCog(commands.Cog):
             
     @app_commands.command(name="mina", description="Acesse a área de mineração para coletar recursos.")
     async def mina(self, interaction: discord.Interaction):
-        if interaction.guild is None:
-            await interaction.response.send_message("❌ Este comando só pode ser usado dentro de um servidor (cidade).", ephemeral=True)
-            return
         await interaction.response.defer(ephemeral=True)
         user_id_str = str(interaction.user.id)
-        cidade_atual_id = str(interaction.guild.id)
         
-        # Usa a função centralizada para carregar todos os dados do jogador
         sheet = load_player_sheet(user_id_str)
         if not sheet:
-            # (Tratamento de erro se o personagem não existir, etc.)
-            await interaction.followup.send("Você precisa ter um personagem para minerar.", ephemeral=True)
-            return
-
-        # 1. Verifica se o personagem existe
-        char_ref = db.collection('characters').document(user_id_str)
-        char_doc = char_ref.get()
-        if not char_doc.exists:
-            await interaction.followup.send("Você precisa ter um personagem para minerar.", ephemeral=True)
-            return
-
-        char_data = sheet['char_data']
-
-        # 2. VERIFICA A LOCALIZAÇÃO DO JOGADOR
-        if char_data.get('localizacao_id') != cidade_atual_id:
-            await interaction.followup.send(
-                f"Você não está em **{interaction.guild.name}** para usar a Mina daqui!\n"
-                f"Use o comando `/viajar` para vir para esta cidade.",
-                ephemeral=True
-            )
-            return
-
-        # 3. Verifica se a cidade existe
-        cidade_ref = db.collection('cidades').document(cidade_atual_id)
-        cidade_doc = cidade_ref.get()
-        if not cidade_doc.exists:
-            await interaction.followup.send(f"A cidade de **{interaction.guild.name}** ainda não foi fundada.", ephemeral=True)
-            return
+            return await interaction.followup.send("Você precisa ter um personagem.", ephemeral=True)
         
-        cidade_data = cidade_doc.to_dict()
+        if sheet['char_data'].get('localizacao_id') != str(interaction.guild.id):
+             return await interaction.followup.send("Você não está nesta cidade para usar a Mina daqui!", ephemeral=True)
         
-        equipped_items = {}
-        # --- CORREÇÃO APLICADA AQUI ---
-        # Alterado de 'inventario' para 'inventario_equipamentos'
-        inventory_snapshot = char_ref.collection('inventario_equipamentos').where('equipado', '==', True).stream()
-        
-        for item_ref in inventory_snapshot:
-            item_id = item_ref.id
-            instance_doc = db.collection('items').document(item_id).get()
-            if not instance_doc.exists: continue
-            
-            instance_data = instance_doc.to_dict()
-            template_id = instance_data.get('template_id')
-            template_doc = db.collection('item_templates').document(template_id).get()
-            if not template_doc.exists: continue
+        cidade_doc = db.collection('cidades').document(str(interaction.guild.id)).get()
+        stats_finais = calcular_stats_completos(sheet['char_data'], sheet['equipped_items'])
 
-            template_data = template_doc.to_dict()
-            slot = template_data.get('slot')
-            
-            if slot:
-                equipped_items[slot] = {
-                    "id": item_id,
-                    "instance_data": instance_data,
-                    "template_data": template_data
-                }
-        
-        # Para depuração: veja no seu console o que está sendo carregado
-        print(f"DEBUG para {interaction.user.name}: Itens Equipados no /mina: {list(equipped_items.keys())}")
-        
-        # --- CORREÇÃO APLICADA AQUI ---
-        # 1. Calcula os status FINAIS do jogador, que incluem os bónus de profissão
-        stats_finais = calcular_stats_completos(char_data, sheet['equipped_items'])
+        # --- ATUALIZADO: Usa a nova ColetaView configurada para mineração ---
+        view = ColetaView(
+            author=interaction.user, char_data=sheet['char_data'], cidade_data=cidade_doc.to_dict(), 
+            equipped_items=sheet['equipped_items'], item_templates_cache=self.item_templates_cache,
+            stats_finais=stats_finais, tipo_coleta='mineração' # <-- Diz à View para ser uma Mina
+        )
+        embed = view.create_embed()
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
-        view = MiningView(
-            author=interaction.user, 
-            char_data=char_data, 
-            cidade_data=cidade_doc.to_dict(), 
-            equipped_items=sheet['equipped_items'],
-            item_templates_cache=self.item_templates_cache,
-            stats_finais=stats_finais # 2. Passa os status finais para a View
+    # --- NOVO COMANDO /floresta ---
+    @app_commands.command(name="floresta", description="Vá para a floresta para coletar madeira e outros recursos.")
+    async def floresta(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        user_id_str = str(interaction.user.id)
+        
+        sheet = load_player_sheet(user_id_str)
+        if not sheet:
+            return await interaction.followup.send("Você precisa ter um personagem.", ephemeral=True)
+        
+        if sheet['char_data'].get('localizacao_id') != str(interaction.guild.id):
+             return await interaction.followup.send("Você não está nesta cidade para usar a Floresta daqui!", ephemeral=True)
+        
+        cidade_doc = db.collection('cidades').document(str(interaction.guild.id)).get()
+        stats_finais = calcular_stats_completos(sheet['char_data'], sheet['equipped_items'])
+
+        # --- Usa a mesma ColetaView, mas configurada para lenhador ---
+        view = ColetaView(
+            author=interaction.user, char_data=sheet['char_data'], cidade_data=cidade_doc.to_dict(), 
+            equipped_items=sheet['equipped_items'], item_templates_cache=self.item_templates_cache,
+            stats_finais=stats_finais, tipo_coleta='lenhador' # <-- Diz à View para ser uma Floresta
         )
         embed = view.create_embed()
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)

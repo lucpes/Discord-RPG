@@ -20,6 +20,30 @@ PROFISSOES = {
                 "passivas": {"fortuna_mineracao": 1, "eficiencia_mineracao": 0.03, "poder_coleta_mineracao": 0.01}, # +2% de eficiência
                 "desbloqueios": []
             }},
+            {"xp_para_upar": 1200, "recompensas": {
+                "passivas": {"fortuna_mineracao": 1, "eficiencia_mineracao": 0.03, "poder_coleta_mineracao": 0.01}, # +2% de eficiência
+                "desbloqueios": []
+            }},
+            {"xp_para_upar": 1200, "recompensas": {
+                "passivas": {"fortuna_mineracao": 1, "eficiencia_mineracao": 0.03, "poder_coleta_mineracao": 0.01}, # +2% de eficiência
+                "desbloqueios": []
+            }},
+            {"xp_para_upar": 1200, "recompensas": {
+                "passivas": {"fortuna_mineracao": 1, "eficiencia_mineracao": 0.03, "poder_coleta_mineracao": 0.01}, # +2% de eficiência
+                "desbloqueios": []
+            }},
+            {"xp_para_upar": 1200, "recompensas": {
+                "passivas": {"fortuna_mineracao": 1, "eficiencia_mineracao": 0.03, "poder_coleta_mineracao": 0.01}, # +2% de eficiência
+                "desbloqueios": []
+            }},
+            {"xp_para_upar": 1200, "recompensas": {
+                "passivas": {"fortuna_mineracao": 1, "eficiencia_mineracao": 0.03, "poder_coleta_mineracao": 0.01}, # +2% de eficiência
+                "desbloqueios": []
+            }},
+            {"xp_para_upar": 1200, "recompensas": {
+                "passivas": {"fortuna_mineracao": 1, "eficiencia_mineracao": 0.03, "poder_coleta_mineracao": 0.01}, # +2% de eficiência
+                "desbloqueios": []
+            }},
         ]
     },
     "lenhador": {
@@ -38,8 +62,36 @@ PROFISSOES = {
                 "desbloqueios": ["Receita: Barra de Cobre"]
             }},
             {"xp_para_upar": 1200, "recompensas": {
-                "passivas": {"fortuna": 2, "eficiencia": 0.02}, # +2% de eficiência
-                "desbloqueios": ["Receita: Barra de Cobre"]
+                "passivas": {}, # +2% de eficiência
+                "desbloqueios": []
+            }},
+            {"xp_para_upar": 1200, "recompensas": {
+                "passivas": {}, # +2% de eficiência
+                "desbloqueios": []
+            }},
+            {"xp_para_upar": 1200, "recompensas": {
+                "passivas": {}, # +2% de eficiência
+                "desbloqueios": []
+            }},
+            {"xp_para_upar": 1200, "recompensas": {
+                "passivas": {}, # +2% de eficiência
+                "desbloqueios": []
+            }},
+            {"xp_para_upar": 1200, "recompensas": {
+                "passivas": {}, # +2% de eficiência
+                "desbloqueios": []
+            }},
+            {"xp_para_upar": 1200, "recompensas": {
+                "passivas": {}, # +2% de eficiência
+                "desbloqueios": []
+            }},
+            {"xp_para_upar": 1200, "recompensas": {
+                "passivas": {}, # +2% de eficiência
+                "desbloqueios": []
+            }},
+            {"xp_para_upar": 1200, "recompensas": {
+                "passivas": {}, # +2% de eficiência
+                "desbloqueios": []
             }},
         ]
     },
@@ -52,6 +104,22 @@ PROFISSOES = {
             {"xp_para_upar": 800, "recompensas": {
                 "passivas": {"chance_obra_prima": 0.01}, # +1% de chance de obra-prima
                 "desbloqueios": ["Receitas de Equipamentos de Ferro"]
+            }},
+            {"xp_para_upar": 800, "recompensas": {
+                "passivas": {}, # +1% de chance de obra-prima
+                "desbloqueios": []
+            }},
+            {"xp_para_upar": 800, "recompensas": {
+                "passivas": {}, # +1% de chance de obra-prima
+                "desbloqueios": []
+            }},
+            {"xp_para_upar": 800, "recompensas": {
+                "passivas": {}, # +1% de chance de obra-prima
+                "desbloqueios": []
+            }},
+            {"xp_para_upar": 800, "recompensas": {
+                "passivas": {}, # +1% de chance de obra-prima
+                "desbloqueios": []
             }},
         ]
     },

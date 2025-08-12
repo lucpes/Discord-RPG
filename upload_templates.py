@@ -14,6 +14,7 @@ TEMPLATES_PARA_UPLOAD = {
         "raridade": "RARO",
         "slot": "MAO_PRINCIPAL",
         "slots_encantamento": 2,
+        "nivel_requerido": 1,
         "stats_base": {
             "DANO": { "min": 25, "max": 40 },
             "CRITICO_CHANCE": { "min": 5, "max": 10 }
@@ -27,6 +28,7 @@ TEMPLATES_PARA_UPLOAD = {
         "raridade": "INCOMUM",
         "slot": "MAO_PRINCIPAL",
         "slots_encantamento": 1,
+        "nivel_requerido": 1,
         "stats_base": {
             "DANO": { "min": 10, "max": 18 },
             "CRITICO_CHANCE": { "min": 10, "max": 15 }
@@ -40,6 +42,7 @@ TEMPLATES_PARA_UPLOAD = {
         "raridade": "COMUM",
         "slot": "MAO_PRINCIPAL",
         "slots_encantamento": 1,
+        "nivel_requerido": 1,
         "stats_base": {
             "DANO": { "min": 12, "max": 20 }
         }
@@ -51,6 +54,7 @@ TEMPLATES_PARA_UPLOAD = {
         "raridade": "COMUM",
         "slot": "MAO_SECUNDARIA",
         "slots_encantamento": 0,
+        "nivel_requerido": 5,
         "stats_base": {
             "ARMADURA": { "min": 5, "max": 10 },
             "BLOQUEIO_CHANCE": { "min": 5, "max": 10 }
@@ -63,6 +67,7 @@ TEMPLATES_PARA_UPLOAD = {
         "raridade": "COMUM",
         "slot": "PEITORAL",
         "slots_encantamento": 1,
+        "nivel_requerido": 1,
         "stats_base": {
             "ARMADURA": { "min": 10, "max": 15 },
             "ARMADURA_MAGICA": { "min": 10, "max": 15 },
@@ -77,6 +82,7 @@ TEMPLATES_PARA_UPLOAD = {
         "raridade": "Incomum",
         "slot": "PEITORAL",
         "slots_encantamento": 1,
+        "nivel_requerido": 10,
         "stats_base": {
             "ARMADURA": { "min": 10, "max": 15 },
             "ARMADURA_MAGICA": { "min": 10, "max": 15 },
@@ -150,6 +156,52 @@ TEMPLATES_PARA_UPLOAD = {
         "descricao": "Essencia Magica Pura."
     },
     # --- FERRAMENTAS ---
+    
+    # Ferramentas iniciais
+    "picareta_improvisada": {
+        "nome": "Picareta Improvisada",
+        "emote": "⛏️",
+        "tipo": "FERRAMENTA",
+        "raridade": "COMUM",
+        "slot": "PICARETA",
+        "slots_encantamento": 0,
+        "descricao": "Picareta Improvisada",
+        "nivel_requerido": {
+            "profissao": "minerador", 
+            "nivel": 0
+        },
+        "atributos_ferramenta": {
+            # --- NOMES DOS ATRIBUTOS ATUALIZADOS ---
+            "nivel_minerador": 1,
+            "poder_coleta_mineracao": 0, # Antes: poder_coleta
+            "eficiencia_mineracao": 0,    # Antes: eficiencia
+            "durabilidade_max": 20,
+            "fortuna_mineracao": 0         # Antes: fortuna
+        }
+    },
+    "machado_improvisado": {
+        "nome": "Machado Improvisado",
+        "emote": "🪓",
+        "tipo": "FERRAMENTA",
+        "raridade": "COMUM",
+        "slot": "MACHADO",
+        "slots_encantamento": 0,
+        "descricao": "Ideal para derrubar árvores e coletar madeira.",
+        "nivel_requerido": {
+            "profissao": "lenhador", 
+            "nivel": 0
+        },
+        # --- NOMES DOS ATRIBUTOS ATUALIZADOS ---
+        "atributos_ferramenta": {
+            "nivel_lenhador": 1,
+            "poder_coleta_lenhador": 0,
+            "eficiencia_lenhador": 0,
+            "durabilidade_max": 20,
+            "fortuna_lenhador": 0
+        }
+    },
+    
+    
     "picareta_ferro": {
         "nome": "Picareta de Ferro",
         "emote": "⛏️",
@@ -157,9 +209,13 @@ TEMPLATES_PARA_UPLOAD = {
         "raridade": "INCOMUM",
         "slot": "PICARETA",
         "descricao": "...",
+        "nivel_requerido": {
+            "profissao": "minerador", 
+            "nivel": 5
+        },
         "atributos_ferramenta": {
             # --- NOMES DOS ATRIBUTOS ATUALIZADOS ---
-            "nivel_mineração": 2,
+            "nivel_minerador": 2,
             "poder_coleta_mineracao": 0.15, # Antes: poder_coleta
             "eficiencia_mineracao": 0.10,    # Antes: eficiencia
             "durabilidade_max": 50,
@@ -174,12 +230,17 @@ TEMPLATES_PARA_UPLOAD = {
         "slot": "MACHADO",
         "slots_encantamento": 0,
         "descricao": "Ideal para derrubar árvores e coletar madeira.",
+        "nivel_requerido": {
+            "profissao": "lenhador", 
+            "nivel": 5
+        },
+        # --- NOMES DOS ATRIBUTOS ATUALIZADOS ---
         "atributos_ferramenta": {
-            "nivel_mineração": 2,  # mudar os status de lenhador depois
-            "poder_coleta": 0.25,
-            "eficiencia": 0.15,
-            "durabilidade_max": 250,
-            "fortuna": 0
+            "nivel_lenhador": 1,
+            "poder_coleta_lenhador": 0.05,
+            "eficiencia_lenhador": 0.05,
+            "durabilidade_max": 100,
+            "fortuna_lenhador": 0
         }
     },
 
