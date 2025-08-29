@@ -311,12 +311,13 @@ def criar_barra_status(atual: int, maximo: int, cor_cheia: str, tamanho: int = 1
 # --- A VERSÃO FINAL E CORRIGIDA DA BATTLEVIEW ---
 # --- A VERSÃO FINAL E COMPLETA DA BATTLEVIEW ---
 class BattleView(ui.View):
-    def __init__(self, bot: commands.Bot, jogadores_data: list, monstros_data: list, tier: int = 1):
+    def __init__(self, bot: commands.Bot, jogadores_data: list, monstros_data: list, tier: int = 1, recompensas_extras: dict = None):
         super().__init__(timeout=300)
         self.bot = bot
         self.jogadores = jogadores_data
         self.monstros = monstros_data
         self.tier = tier
+        self.recompensas_extras = recompensas_extras # NOVO: Armazena as recompensas
         self.monstros_originais = monstros_data.copy()
         self.ordem_de_turno = []
         self.combatente_atual_index = -1 
@@ -565,9 +566,17 @@ class BattleView(ui.View):
             if moedas_info:
                 total_moedas += random.randint(moedas_info.get('min', 0), moedas_info.get('max', 0))
 
+        # --- NOVO: Adiciona as recompensas extras do contrato ao total ---
+        if self.recompensas_extras:
+            total_xp += self.recompensas_extras.get('xp', 0)
+            total_moedas += self.recompensas_extras.get('moedas', 0)
+        # --- FIM DA ADIÇÃO ---
+
         xp_por_jogador = total_xp // len(jogadores_vivos) if jogadores_vivos else 0
         moedas_por_jogador = total_moedas // len(jogadores_vivos) if jogadores_vivos else 0
 
+        # (O restante do seu método vitoria continua exatamente o mesmo daqui para baixo)
+        
         # 2. PROCESSAR E SEPARAR O LOOT
         loot_unico = []
         loot_empilhavel = {}
@@ -582,11 +591,8 @@ class BattleView(ui.View):
                     item_tipo = template_data.get('tipo', 'MATERIAL')
 
                     if item_tipo in ['ARMA', 'ARMADURA', 'ESCUDO', 'FERRAMENTA']:
-                        # --- CORREÇÃO APLICADA AQUI ---
-                        # Agora guardamos tanto o ID quanto os dados do template
                         loot_unico.append({"template_id": template_id, "data": template_data})
                     else:
-                        # (Lógica de contagem de itens empilháveis - sem alterações)
                         quantidade_range = item_drop_info.get('quantidade', (1, 1))
                         quantidade = random.randint(quantidade_range[0], quantidade_range[1])
                         if template_id not in loot_empilhavel:
@@ -601,8 +607,6 @@ class BattleView(ui.View):
                 jogador_sorteado = random.choice(jogadores_vivos)
                 user_id_str = str(jogador_sorteado['id'])
                 
-                # --- CORREÇÃO APLICADA AQUI ---
-                # Usamos os dados que guardamos corretamente
                 item_template_id = loot_item['template_id']
                 item_template_data = loot_item['data']
 
@@ -610,7 +614,6 @@ class BattleView(ui.View):
                 item_id = get_and_increment_item_id(transaction)
                 stats_gerados = {s: random.randint(v['min'], v['max']) for s, v in item_template_data.get('stats_base', {}).items()}
                 
-                # Usa o item_template_id correto para criar o novo item
                 item_data = {"template_id": item_template_id, "owner_id": user_id_str, "stats_gerados": stats_gerados}
                 db.collection('items').document(str(item_id)).set(item_data)
                 
@@ -648,7 +651,6 @@ class BattleView(ui.View):
             for jogador in jogadores_vivos:
                 char_ref = db.collection('characters').document(str(jogador['id']))
                 for template_id, info in loot_empilhavel.items():
-                    # Salva na coleção correta: 'inventario_empilhavel'
                     item_ref = char_ref.collection('inventario_empilhavel').document(template_id)
                     item_ref.set({'quantidade': firestore.Increment(info['quantidade'])}, merge=True)
 
